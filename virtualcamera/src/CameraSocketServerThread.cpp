@@ -118,6 +118,134 @@ void CameraSocketServerThread::clearBuffer(char *buffer, int width, int height) 
     ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
 }
 
+bool CameraSocketServerThread::configureCapabilities(bool skipReqCapability) {
+    ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
+
+    bool status = false, validCodecType = false, validResolution = false;
+    size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
+    size_t cap_packet_size = sizeof(camera_header_t) + sizeof(camera_capability_t);
+    ssize_t recv_size = 0;
+    camera_ack_t ack_payload = ACK_CONFIG;
+
+    camera_config_t config = {};
+    camera_capability_t capability = {};
+
+    camera_packet_t* cap_packet = NULL;
+    camera_packet_t* ack_packet = NULL;
+    camera_header_t header = {};
+
+    if (!skipReqCapability) {
+        if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
+                                         MSG_WAITALL)) < 0) {
+            ALOGE(LOG_TAG "%s: Failed to receive header, err: %s ", __FUNCTION__,
+                    strerror(errno));
+            goto out;
+        }
+        if (header.type != REQUEST_CAPABILITY) {
+            ALOGE(LOG_TAG "%s: Invalid packet type\n", __FUNCTION__);
+            goto out;
+        }
+        ALOGI(LOG_TAG "%s: Received REQUEST_CAPABILITY header from client", __FUNCTION__);
+    }
+
+    cap_packet = (camera_packet_t*) malloc(cap_packet_size);
+    if (cap_packet == NULL) {
+        ALOGE(LOG_TAG "%s: cap camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
+        return false;
+    }
+
+    cap_packet->header.type = CAPABILITY;
+    cap_packet->header.size = sizeof(camera_capability_t);
+    capability.codec_type = (uint32_t) VideoCodecType::kAll;
+    capability.resolution = (uint32_t) FrameResolution::kAll;
+
+    memcpy(cap_packet->payload, &capability, sizeof(camera_capability_t));
+    if (send(mClientFd, cap_packet, cap_packet_size, 0) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to send camera capabilities, err: %s ", __FUNCTION__,
+                strerror(errno));
+        goto out;
+    }
+    ALOGI(LOG_TAG "%s: Sent CAPABILITY packet to client", __FUNCTION__);
+
+    if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
+            MSG_WAITALL)) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to receive header, err: %s ", __FUNCTION__,
+                strerror(errno));
+        goto out;
+    }
+
+    if (header.type != CAMERA_CONFIG || header.size != sizeof(camera_config_t)) {
+        ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s or size: %zu", __FUNCTION__,
+                camera_type_to_str(header.type), recv_size);
+        goto out;
+    }
+
+    if ((recv_size = recv(mClientFd, (char *)&config, sizeof(camera_config_t),
+            MSG_WAITALL)) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to receive camera config, err: %s ", __FUNCTION__,
+                strerror(errno));
+        goto out;
+    }
+
+    ALOGI(LOG_TAG "%s: Received  CAMERA_CONFIG packet from client with recv_size: %zd ",
+                   __FUNCTION__, recv_size);
+
+    ALOGI(LOG_TAG "%s - codec_type: %s, resolution: %s", __FUNCTION__,
+            codec_type_to_str(config.codec_type), resolution_to_str(config.resolution));
+
+    ack_packet = (camera_packet_t*) malloc(ack_packet_size);
+    if (ack_packet == NULL) {
+        ALOGE(LOG_TAG "%s: ack camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
+        goto out;
+    }
+
+    switch (config.codec_type) {
+         case uint32_t(VideoCodecType::kH264):
+         case uint32_t(VideoCodecType::kH265):
+             validCodecType = true;
+             break;
+         default:
+             validCodecType = false;
+             break;
+    }
+
+    switch (config.resolution) {
+         case uint32_t(FrameResolution::k480p):
+         case uint32_t(FrameResolution::k720p):
+         case uint32_t(FrameResolution::k1080p):
+             validResolution = true;
+             break;
+         default:
+             validResolution = false;
+             break;
+    }
+
+    if (validResolution && validCodecType) {
+        // Store codec type and resolution.
+        mVideoDecoder->setCodecTypeAndResolution(config.codec_type, config.resolution);
+    }
+    ack_payload = (validResolution && validCodecType) ? ACK_CONFIG : NACK_CONFIG;
+
+    ack_packet->header.type = ACK;
+    ack_packet->header.size = sizeof(camera_ack_t);
+
+    memcpy(ack_packet->payload, &ack_payload, sizeof(camera_ack_t));
+    if (send(mClientFd, ack_packet, ack_packet_size, 0) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to send camera capabilities, err: %s ", __FUNCTION__,
+                strerror(errno));
+        goto out;
+    }
+    ALOGI(LOG_TAG "%s: Sent ACK packet to client with ack_size: %zu ",
+                   __FUNCTION__, ack_packet_size);
+
+    status = true;
+out:
+    free(ack_packet);
+    free(cap_packet);
+    ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
+    return status;
+}
+
 bool CameraSocketServerThread::threadLoop() {
     mSocketServerFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (mSocketServerFd < 0) {
@@ -180,6 +308,12 @@ bool CameraSocketServerThread::threadLoop() {
         }
         mClientFd = new_client_fd;
 
+        // Store codec type and resolution.
+        mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
+                (uint32_t)FrameResolution::k480p);
+
+        configureCapabilities(false);
+
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         char *fbuffer = (char *)handle->clientBuf[handle->clientRevCount % 1].buffer;
 
@@ -219,24 +353,35 @@ bool CameraSocketServerThread::threadLoop() {
                                __FUNCTION__, handle->clientRevCount, size);
                     }
                 } else if (gIsInFrameH264) {  // default H264
-                    size_t recv_frame_size = 0;
                     ssize_t size = 0;
-                    if ((size = recv(mClientFd, (char *)&recv_frame_size, sizeof(size_t),
+                    camera_header_t header = {};
+                    if ((size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
                                      MSG_WAITALL)) > 0) {
-                        ALOGVV("[H264] Received Header %zd bytes. Payload size: %zu", size,
-                              recv_frame_size);
-                        if (recv_frame_size > mSocketBuffer.size()) {
+                        ALOGVV("[H264] Received Header %zd bytes. Payload size: %u", size,
+                              header.size);
+                        if (header.type == REQUEST_CAPABILITY) {
+                            // Negotiate and configure capabilities
+                            configureCapabilities(true);
+                            continue;
+                        } else if (header.type != CAMERA_DATA) {
+                            ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s", __FUNCTION__,
+                                    camera_type_to_str(header.type));
+                            continue;
+                        }
+
+                        if (header.size > mSocketBuffer.size()) {
                             // maximum size of a H264 packet in any aggregation packet is 65535
                             // bytes. Source: https://tools.ietf.org/html/rfc6184#page-13
                             ALOGE(
-                                "%s Fatal: Unusual H264 packet size detected: %zu! Max is %zu, ...",
-                                __func__, recv_frame_size, mSocketBuffer.size());
+                                "%s Fatal: Unusual H264 packet size detected: %u! Max is %zu, ...",
+                                __func__, header.size, mSocketBuffer.size());
                             continue;
                         }
+
                         // recv frame
-                        if ((size = recv(mClientFd, (char *)mSocketBuffer.data(), recv_frame_size,
+                        if ((size = recv(mClientFd, (char *)mSocketBuffer.data(), header.size,
                                          MSG_WAITALL)) > 0) {
-                            mSocketBufferSize = recv_frame_size;
+                            mSocketBufferSize = header.size;
                             ALOGVV("%s [H264] Camera session state: %s", __func__,
                                   kCameraSessionStateNames.at(mCameraSessionState).c_str());
                             switch (mCameraSessionState) {
@@ -246,8 +391,8 @@ bool CameraSocketServerThread::threadLoop() {
                                 case CameraSessionState::kDecodingStarted:
                                     mVideoDecoder->decode(mSocketBuffer.data(), mSocketBufferSize);
                                     handle->clientRevCount++;
-                                    ALOGVV("%s [H264] Received Payload #%d %zd/%zu bytes", __func__,
-                                          handle->clientRevCount, size, recv_frame_size);
+                                    ALOGVV("%s [H264] Received Payload #%d %zd/%u bytes", __func__,
+                                          handle->clientRevCount, size, header.size);
                                     break;
                                 case CameraSessionState::kCameraClosed:
                                     mVideoDecoder->flush_decoder();

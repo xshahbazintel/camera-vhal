@@ -96,7 +96,11 @@ typedef std::unique_ptr<HWAccelContext, HWAccelContextDeleter> CGHWAccelContex;
 
 class CGVideoDecoder {
 public:
-    CGVideoDecoder(){};
+    CGVideoDecoder() {
+        codec_type = int(android::socket::VideoCodecType::kH264);
+        resolution = int(android::socket::FrameResolution::k480p);
+    }
+
     CGVideoDecoder(int codec_type, int resolution_type, const char *device_name = nullptr,
                    int extra_hw_frames = 0);
     virtual ~CGVideoDecoder();
@@ -147,6 +151,9 @@ public:
      */
     int destroy();
 
+    void setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution);
+    uint32_t getCodecType();
+
 private:
     CGDecContex m_decode_ctx;        ///<! cg decoder internal context
     CGHWAccelContex m_hw_accel_ctx;  ///<! hw decoding accelerator context
@@ -155,6 +162,8 @@ private:
 
     CGVideoDecoder(const CGVideoDecoder &cg_video_decoder);
     CGVideoDecoder &operator=(const CGVideoDecoder &) { return *this; }
+    uint32_t codec_type;
+    uint32_t resolution;
 };
 
 #endif  // CG_CODEC_H

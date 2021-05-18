@@ -32,16 +32,8 @@ namespace android {
 
 namespace socket {
 
-enum class VideoCodecType { kH264 = 0 };
-enum class FrameResolution { k480p = 0, k720p, k1080p };
-
-struct CameraFrameInfo {
-    VideoCodecType codec_type = VideoCodecType::kH264;
-    FrameResolution resolution = FrameResolution::k480p;
-    uint32_t reserved[4];
-};
-
-enum class CameraOperation { kOpen = 11, kClose = 12, kNone = 13 };
+enum class VideoCodecType { kH264 = 1, kH265 = 2, kAll = 3 };
+enum class FrameResolution { k480p = 1, k720p = 2, k1080p = 4, kAll = 7 };
 
 enum class CameraSessionState {
     kNone,
@@ -53,17 +45,60 @@ enum class CameraSessionState {
 
 extern const std::unordered_map<CameraSessionState, std::string> kCameraSessionStateNames;
 
-enum class CameraVHalVersion {
-    kV1 = 0,  // decode out of camera vhal
-    kV2 = 1,  // decode in camera vhal
-};
+typedef struct _camera_config {
+    uint32_t codec_type;
+    uint32_t resolution;
+    uint32_t reserved[6];
+} camera_config_t;
 
-// has default values.
-struct CameraConfig {
-    CameraVHalVersion version = CameraVHalVersion::kV2;
-    CameraOperation operation = CameraOperation::kNone;
-    CameraFrameInfo frame_info;
-};
+typedef enum _ack_value {
+    NACK_CONFIG =0,
+    ACK_CONFIG = 1,
+} camera_ack_t;
+
+typedef enum _camera_cmd {
+    CMD_OPEN  = 11,
+    CMD_CLOSE = 12,
+} camera_cmd_t;
+
+typedef enum _camera_version {
+    CAMERA_VHAL_VERSION_1 = 0, // decode out of camera vhal
+    CAMERA_VHAL_VERSION_2 = 1, // decode in camera vhal
+} camera_version_t;
+
+typedef struct _camera_config_cmd {
+    camera_version_t version;
+    camera_cmd_t cmd;
+    camera_config_t config;
+} camera_config_cmd_t;
+
+typedef struct _camera_capability {
+    uint32_t codec_type; // All supported codec_type
+    uint32_t resolution; // All supported resolution
+    uint32_t reserved[6];
+} camera_capability_t;
+
+typedef enum _camera_packet_type {
+    REQUEST_CAPABILITY = 0,
+    CAPABILITY = 1,
+    CAMERA_CONFIG = 2,
+    CAMERA_DATA = 3,
+    ACK = 4,
+} camera_packet_type_t;
+
+typedef struct _camera_header {
+    camera_packet_type_t type;
+    uint32_t size;
+} camera_header_t;
+
+typedef struct _camera_packet {
+    camera_header_t header;
+    uint8_t payload[0];
+} camera_packet_t;
+
+const char* camera_type_to_str(int type);
+const char* codec_type_to_str(uint32_t type);
+const char* resolution_to_str(uint32_t resolution);
 }  // namespace socket
 }  // namespace android
 

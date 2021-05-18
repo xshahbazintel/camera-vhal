@@ -200,7 +200,7 @@ private:
     std::atomic<socket::CameraSessionState> &mCameraSessionState;
 
     bool createSocketServer(bool facing_back);
-    status_t sendCommandToClient(socket::CameraOperation operation);
+    status_t sendCommandToClient(socket::camera_cmd_t cmd);
 
     /** Processing thread for sending out results */
 

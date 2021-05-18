@@ -159,28 +159,49 @@ status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *fra
     return VirtualCamera3::Initialize(nullptr, nullptr, nullptr);
 }
 
-status_t VirtualFakeCamera3::sendCommandToClient(socket::CameraOperation operation) {
+status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
-    socket::CameraConfig camera_config = {};
-    camera_config.operation = operation;
+    status_t status = INVALID_OPERATION;
+    size_t config_cmd_packet_size = sizeof(camera_header_t) + sizeof(camera_config_cmd_t);
+    camera_config_cmd_t config_cmd = {};
+    config_cmd.version = CAMERA_VHAL_VERSION_2;
+    config_cmd.cmd = cmd;
+    config_cmd.config.codec_type = mDecoder->getCodecType();
+    config_cmd.config.resolution = (uint32_t) FrameResolution::k480p;
+
+    camera_packet_t* config_cmd_packet = NULL;
 
     int client_fd = mSocketServer->getClientFd();
     if (client_fd < 0) {
         ALOGE("%s: We're not connected to client yet!", __FUNCTION__);
-        return INVALID_OPERATION;
-    }
-    ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
-    if (send(client_fd, &camera_config, sizeof(camera_config), 0) < 0) {
-        ALOGE(LOG_TAG "%s: Failed to send Camera Open command to client, err %s ", __FUNCTION__,
-              strerror(errno));
-        return INVALID_OPERATION;
+        return status;
     }
 
-    std::string cmd_str =
-        (operation == socket::CameraOperation::kClose) ? "CloseCamera" : "OpenCamera";
-    ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__, cmd_str.c_str(), client_fd);
-    return OK;
+    config_cmd_packet = (camera_packet_t*) malloc(config_cmd_packet_size);
+    if (config_cmd_packet == NULL) {
+        ALOGE(LOG_TAG "%s: config camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
+        goto out;
+    }
+
+    config_cmd_packet->header.type = CAMERA_CONFIG;
+    config_cmd_packet->header.size = sizeof(camera_config_cmd_t);
+    memcpy(config_cmd_packet->payload, &config_cmd, sizeof(camera_config_cmd_t));
+
+    ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
+    if (send(client_fd, config_cmd_packet, config_cmd_packet_size, 0) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to send Camera %s command to client, err %s ", __FUNCTION__,
+                       (cmd == camera_cmd_t::CMD_CLOSE ) ? "CloseCamera" : "OpenCamera",
+                       strerror(errno));
+        goto out;
+    }
+
+    ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__,
+             (cmd == camera_cmd_t::CMD_CLOSE ) ? "CloseCamera" : "OpenCamera", client_fd);
+    status = OK;
+out:
+    free(config_cmd_packet);
+    return status;
 }
 
 status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
@@ -201,12 +222,12 @@ status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
 
     ALOGI("%s Calling sendCommandToClient", __func__);
     status_t ret;
-    if ((ret = sendCommandToClient(socket::CameraOperation::kOpen)) != OK) {
+    if ((ret = sendCommandToClient(camera_cmd_t::CMD_OPEN)) != OK) {
         ALOGE("%s sendCommandToClient failed", __func__);
         return ret;
     }
     ALOGI("%s Called sendCommandToClient", __func__);
-    mCameraSessionState = socket::CameraSessionState::kCameraOpened;
+    mCameraSessionState = CameraSessionState::kCameraOpened;
 
     // create sensor who gets decoded frames and forwards them to framework
     mSensor = new Sensor(mSensorWidth, mSensorHeight, mDecoder);
@@ -296,7 +317,7 @@ status_t VirtualFakeCamera3::closeCamera() {
     ALOGI("%s VideoBuffers are reset", __func__);
 
     // Set state to CameraClosed, so that SocketServerThread stops decoding.
-    mCameraSessionState = socket::CameraSessionState::kCameraClosed;
+    mCameraSessionState = CameraSessionState::kCameraClosed;
 
     if (gIsInFrameH264) {
         int waitForCameraClose = 0;
@@ -310,7 +331,7 @@ status_t VirtualFakeCamera3::closeCamera() {
     }
 
     // Send close command to client
-    status_t ret = sendCommandToClient(socket::CameraOperation::kClose);
+    status_t ret = sendCommandToClient(camera_cmd_t::CMD_CLOSE);
     if (ret != OK) {
         ALOGE("%s sendCommandToClient failed", __func__);
         return ret;

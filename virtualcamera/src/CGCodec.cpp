@@ -172,7 +172,6 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelF
 
 HWAccelContext::HWAccelContext(const AVCodec *decoder, AVCodecContext *avcodec_ctx,
                                const char *device_name, int extra_frames) {
-    char *dev_dri = NULL;
     const char *device_prefix = "/dev/dri/renderD";
     char device[MAX_DEVICE_NAME_SIZE] = {'\0'};
     char prop_val[PROPERTY_VALUE_MAX] = {'\0'};
@@ -236,12 +235,23 @@ CGVideoDecoder::~CGVideoDecoder() { destroy(); }
 
 bool CGVideoDecoder::can_decode() const { return !init_failed_; }
 
+void CGVideoDecoder::setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution) {
+    this->codec_type = codec_type;
+    this->resolution = resolution;
+}
+
+uint32_t CGVideoDecoder::getCodecType() {
+    return codec_type;
+}
+
 int CGVideoDecoder::init(android::socket::VideoCodecType codec_type, android::socket::FrameResolution resolution_type, const char *device_name,
                          int extra_hw_frames) {
-    m_decode_ctx = CGDecContex(new DecodeContext(int(codec_type), int(resolution_type)));
+    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(this->resolution)));
     init_failed_ = true;
 
-    AVCodecID codec_id = AV_CODEC_ID_H264;
+    AVCodecID codec_id = (this->codec_type == int(android::socket::VideoCodecType::kH265)) ?
+            AV_CODEC_ID_H265 : AV_CODEC_ID_H264;
+
     ALOGW("Note: Currently we decode only H264 frames!");
 
     const AVCodec *codec = avcodec_find_decoder(codec_id);
