@@ -89,15 +89,12 @@
 
 using namespace std::chrono_literals;
 
-#define FRAME_SIZE_240P 320 * 240 * 1.5
-#define FRAME_SIZE_480P 640 * 480 * 1.5
-
 namespace android {
 
 class Sensor : private Thread, public virtual RefBase {
 public:
-    // width: Width of pixel array
-    // height: Height of pixel array
+    // width: Max width of client camera HW.
+    // height: Max height of client camera HW.
     Sensor(uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder = nullptr);
     ~Sensor();
 
@@ -124,12 +121,6 @@ public:
     void setDestinationBuffers(Buffers *buffers);
     // To simplify tracking sensor's current frame
     void setFrameNumber(uint32_t frameNumber);
-
-    /*
-     * Controls that cause reconfiguration delay
-     */
-
-    void setBinning(int horizontalFactor, int verticalFactor);
 
     /*
      * Synchronizing with sensor operation (vertical sync)
@@ -252,24 +243,34 @@ private:
     // m_major_version 0: CPU 1: SG1
     uint8_t m_major_version = 1;
 
-    // memories for preview usecases
-    uint32_t destPrevBufSize = FRAME_SIZE_480P;
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstTempPrevBuf = {};
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstPrevBuf = {};
+    // Max supported resolution and size of client/source camera HW.
+    // HAL supports max 1080p resolution.
+    int mSrcWidth = 0;
+    int mSrcHeight = 0;
+    uint32_t mSrcFrameSize = 0;
 
-    // memories for capture/record usecases
-    uint32_t mDstBufSize = FRAME_SIZE_480P;
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstTempBuf = {};
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstBuf = {};
+    /**
+     * Allocate static memories to avoid continuous allocation on every open camera.
+     * Hence allocating buffers for max supported resolution, that is 1080p.
+     */
 
-    //memories for JPEG/BLOB capture usecases
-    uint32_t mDstJpegBufSize = FRAME_SIZE_480P;
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstJpegTempBuf = {};
-    std::array<uint8_t, 640 * 480 * 3 / 2> mDstJpegBuf = {};
+    static const size_t maxSupportedResWidth = 1920;
+    static const size_t maxSupportedResHeight = 1080;
+    static const size_t bpp = 2; // 12 bpp for NV12/NV21 and 4 bits extra for FHD operations.
+    static const size_t buffSize = maxSupportedResWidth * maxSupportedResHeight * bpp;
 
-    // vHAL buffer
-    int mSrcWidth = 640;
-    int mSrcHeight = 480;
+
+    // Allocate memories for resolution scaling operation in preview.
+    std::array<uint8_t, buffSize> mDstTempPrevBuf = {};
+    std::array<uint8_t, buffSize> mDstPrevBuf = {};
+
+    // Allocate memories for resolution scaling operation in capture/record.
+    std::array<uint8_t, buffSize> mDstTempBuf = {};
+    std::array<uint8_t, buffSize> mDstBuf = {};
+
+    // Allocate memories for resolution scaling operation in JPEG capture.
+    std::array<uint8_t, buffSize> mDstJpegTempBuf = {};
+    std::array<uint8_t, buffSize> mDstJpegBuf = {};
 
     std::shared_ptr<CGVideoDecoder> mDecoder = {};
 

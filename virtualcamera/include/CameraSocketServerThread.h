@@ -43,7 +43,6 @@ public:
     virtual void requestExit();
     virtual status_t requestExitAndWait();
     int getClientFd();
-    void clearBuffer();
     void clearBuffer(char *buffer, int width, int height);
     bool configureCapabilities(bool skipReqCapability);
 

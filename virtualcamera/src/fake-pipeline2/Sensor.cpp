@@ -120,7 +120,13 @@ Sensor::Sensor(uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> 
       mExposureTime(kFrameDurationRange[0] - kMinVerticalBlank),
       mFrameDuration(kFrameDurationRange[0]),
       mScene(width, height, kElectronsPerLuxSecond),
-      mDecoder{decoder} {}
+      mDecoder{decoder} {
+    // Max supported resolution of the camera sensor.
+    // It is based on client camera capability info.
+    mSrcWidth = width;
+    mSrcHeight = height;
+    mSrcFrameSize = mSrcWidth * mSrcHeight * BPP_NV12;
+}
 
 Sensor::~Sensor() { shutDown(); }
 
@@ -408,8 +414,7 @@ bool Sensor::threadLoop() {
     }
 
     ALOGVV("Sensor Thread stage X :4");
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    ALOGVV("Frame #%zu cycle took %d ms, target %d ms", handle->decodedFrameNo,
+    ALOGVV("Frame No: %d took %d ms, target %d ms", frameNumber,
           (int)(workDoneRealTime - startRealTime) / 1000000, (int)(frameDuration / 1000000));
     return true;
 };
@@ -475,7 +480,7 @@ void Sensor::dump_yuv(uint8_t *img1, size_t img1_size, uint8_t *img2, size_t img
     fclose(f);
 }
 
-bool Sensor::getNV12Frames(uint8_t *out_buf, int *out_size,
+bool Sensor::getNV12Frames(uint8_t *input_buf, int *camera_input_size,
                            std::chrono::milliseconds timeout_ms /* default 5ms */) {
     auto cg_video_frame = std::make_shared<CGVideoFrame>();
     size_t retry_count = 0;
@@ -507,9 +512,9 @@ bool Sensor::getNV12Frames(uint8_t *out_buf, int *out_size,
         }
     } while (true);
 
-    cg_video_frame->copy_to_buffer(out_buf, out_size);
+    cg_video_frame->copy_to_buffer(input_buf, camera_input_size);
     ALOGVV("%s converted to format: %s size: %d \n", __FUNCTION__,
-           cg_video_frame->format() == NV12 ? "NV12" : "I420", *out_size);
+           cg_video_frame->format() == NV12 ? "NV12" : "I420", *camera_input_size);
     ALOGVV("%s decoded buffers are copied", __func__);
 
     return true;
@@ -520,39 +525,28 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 
     auto *handle = ClientVideoBuffer::getClientInstance();
     uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
-    int out_size;
+    int cameraInputDataSize;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
         ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
         return;
     }
 
-    // TODO:: handle other resolutions as required
-    if (width == 320 && height == 240) {
-        destPrevBufSize = FRAME_SIZE_240P;
-    } else if (width == 640 && height == 480) {
-        destPrevBufSize = FRAME_SIZE_480P;
-    } else {
-        // TODO: adjust default
-        destPrevBufSize = FRAME_SIZE_480P;
-    }
-
-    // Initialize to the size based on resolution.
-    out_size = destPrevBufSize;
+    // Initialize the input data size based on client camera resolution.
+    cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
         if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
             // Note: bufData already assigned in the function start
-            ALOGVV("%s - Already Decoded", __FUNCTION__);
-            out_size = destPrevBufSize;
-        } else {
-            getNV12Frames(bufData, &out_size);
+            ALOGVV("%s - Already Decoded Camera Input Frame..", __FUNCTION__);
+        } else { // This is the default condition in all apps.
+	    // To get the decoded frame.
+            getNV12Frames(bufData, &cameraInputDataSize);
             handle->clientBuf[handle->clientRevCount % 1].decoded = true;
-
-            ALOGVV("%s - getNV12Framesout_size: %d\n", __func__, out_size);
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             handle->decodedFrameNo++;
-            ALOGVV("%s Decoded frame #[%zd]", __FUNCTION__, handle->decodedFrameNo);
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
+                    __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
@@ -560,7 +554,7 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     int src_size = mSrcWidth * mSrcHeight;
     int dstFrameSize = width * height;
 
-    // For default 640x480 resolution
+    // For Max supported Resolution.
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
         if (gIsInFrameI420) {
             ALOGVV(LOG_TAG " %s: I420, scaling not required: Size = %dx%d", __FUNCTION__, width,
@@ -592,8 +586,8 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                                              dst_stride_abgr, width, height)) {
             }
         }
+    // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
-        // For lower resolutions like 320x240
         if (gIsInFrameI420) {
             ALOGVV(LOG_TAG " %s: I420, need to scale: Size = %dx%d", __FUNCTION__, width, height);
             int destFrameSize = width * height;
@@ -767,50 +761,40 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 
     ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
     uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
+    int cameraInputDataSize;
 
     ALOGVV(LOG_TAG " %s: bufData[%p] img[%p] resolution[%d:%d]",
            __func__, bufData, img, width, height);
-
-    int src_size = mSrcWidth * mSrcHeight;
-    int dstFrameSize = width * height;
-
-    int out_size;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
         ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
         return;
     }
 
-    // TODO: handle other resolutions as required
-    if (width == 320 && height == 240) {
-        mDstBufSize = FRAME_SIZE_240P;
-    } else if (width == 640 && height == 480) {
-        mDstBufSize = FRAME_SIZE_480P;
-    } else {
-        // TODO: adjust default
-        mDstBufSize = FRAME_SIZE_480P;
-    }
-
-    // Initialize to the size based on resolution.
-    out_size = mDstBufSize;
+    // Initialize the input data size based on client camera resolution.
+    cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
         if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
-            // Note: bufData already assigned in the function start
-            ALOGVV("%s - Already Decoded", __FUNCTION__);
-            out_size = mDstBufSize;
+            // Already decoded camera input as part of preview frame.
+            // This is the default condition in most of the apps.
+            ALOGVV("%s - Already Decoded Camera Input frame..", __FUNCTION__);
         } else {
-            getNV12Frames(bufData, &out_size);
+	    // To get the decoded frame for the apps which doesn't have RGBA preview.
+            getNV12Frames(bufData, &cameraInputDataSize);
             handle->clientBuf[handle->clientRevCount % 1].decoded = true;
-            ALOGVV("%s - getNV12Framesout_size: %d\n", __func__, out_size);
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             handle->decodedFrameNo++;
-            ALOGVV("%s Decoded frame #[%zd]", __FUNCTION__, handle->decodedFrameNo);
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
+                    __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
 
-    // For default resolotion 640x480p
+    int src_size = mSrcWidth * mSrcHeight;
+    int dstFrameSize = width * height;
+
+    // For Max supported Resolution.
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
         if (gIsInFrameI420) {
             // For I420 input support
@@ -841,12 +825,12 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         } else {
             // For NV12 Input support. No Color conversion
-            ALOGVV(LOG_TAG " %s: H264 to NV12 no scaling required: Size = %dx%d, out_size: %d",
-                   __FUNCTION__, width, height, out_size);
-            memcpy(img, bufData, out_size);
+            ALOGVV(LOG_TAG " %s: H264 to NV12 no scaling required: Size = %dx%d",
+                   __FUNCTION__, width, height);
+            memcpy(img, bufData, cameraInputDataSize);
         }
+    // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
-        // For lower resoltuions like 320x240p
         if (gIsInFrameI420) {
             // For I420 input support
             ALOGVV(LOG_TAG " %s: I420 with scaling: Size = %dx%d", __FUNCTION__, width, height);
@@ -982,43 +966,32 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     int src_size = mSrcWidth * mSrcHeight;
     int dstFrameSize = width * height;
 
-    int out_size;
+    int cameraInputDataSize;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
 	ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
 	return;
     }
 
-    //TODO: handle other resolutions as required
-    if (width == 320 && height == 240) {
-        mDstJpegBufSize = FRAME_SIZE_240P;
-    } else if (width == 640 && height == 480) {
-        mDstJpegBufSize = FRAME_SIZE_480P;
-    } else {
-        //TODO: adjust default
-        mDstJpegBufSize = FRAME_SIZE_480P;
-    }
-
-    //Initialize to the size based on resolution.
-    out_size = mDstJpegBufSize;
+    // Initialize the input data size based on client camera resolution.
+    cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
         if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
-	   //Note: bufData already assigned in the function start
-	   ALOGVV("%s - Already Decoded", __FUNCTION__);
-	   out_size = mDstJpegBufSize;
-	} else {
-	   getNV12Frames(bufData, &out_size);
-	   handle->clientBuf[handle->clientRevCount % 1].decoded = true;
-	   ALOGVV("%s - getNV12Framesout_size: %d\n", __func__, out_size);
-	   std::unique_lock<std::mutex> ulock(client_buf_mutex);
-	   handle->decodedFrameNo++;
-	   ALOGVV("%s Decoded frame #[%zd]", __FUNCTION__, handle->decodedFrameNo);
-	   ulock.unlock();
-	}
+            // If already decoded camera input frame.
+            ALOGVV("%s - Already Decoded Camera Input frame", __FUNCTION__);
+    } else {
+            // To get the decoded frame.
+            getNV12Frames(bufData, &cameraInputDataSize);
+            handle->clientBuf[handle->clientRevCount % 1].decoded = true;
+            std::unique_lock<std::mutex> ulock(client_buf_mutex);
+            handle->decodedFrameNo++;
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
+                   __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
+            ulock.unlock();
+        }
     }
-
-    //For default resolution 640x480p
+    // For Max supported Resolution.
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
 	//For I420 input
         if (gIsInFrameI420) {
@@ -1080,7 +1053,7 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 					     dst_stride_vu, width, height)) {
 	    }
         }
-    //For lower resoltuions like 320x240p
+    // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
 	//For I420 input
         if (gIsInFrameI420) {

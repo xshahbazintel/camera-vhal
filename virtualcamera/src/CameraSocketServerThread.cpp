@@ -97,19 +97,6 @@ status_t CameraSocketServerThread::readyToRun() {
     return OK;
 }
 
-void CameraSocketServerThread::clearBuffer() {
-    ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
-    mSocketBuffer.fill(0);
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    char *fbuffer = (char *)handle->clientBuf[handle->clientRevCount % 1].buffer;
-
-    if (gIsInFrameI420) {
-        // TODO: Use width and height for current resolution
-        clearBuffer(fbuffer, 640, 480);
-    }
-    ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
-}
-
 void CameraSocketServerThread::clearBuffer(char *buffer, int width, int height) {
     ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
     char *uv_offset = buffer + width * height;
@@ -317,7 +304,7 @@ bool CameraSocketServerThread::threadLoop() {
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         char *fbuffer = (char *)handle->clientBuf[handle->clientRevCount % 1].buffer;
 
-        clearBuffer(fbuffer, 640, 480);
+        clearBuffer(fbuffer, srcCameraWidth, srcCameraHeight);
 
         struct pollfd fd;
         int event;
@@ -338,7 +325,7 @@ bool CameraSocketServerThread::threadLoop() {
                 shutdown(mClientFd, SHUT_RDWR);
                 close(mClientFd);
                 mClientFd = -1;
-                clearBuffer(fbuffer, 640, 480);
+                clearBuffer(fbuffer, srcCameraWidth, srcCameraHeight);
                 break;
             } else if (event & POLLIN) {  // preview / record
                 // data is available in socket => read data

@@ -3,12 +3,19 @@
 
 #include <mutex>
 
-#define MAX_CLIENT_BUF 8
+#define BPP_NV12 1.5 // 12 bpp
+
 namespace android {
 
 extern bool gIsInFrameI420;
 extern bool gIsInFrameH264;
 extern bool gUseVaapi;
+
+// Camera input res width and height.
+// This would be used for buffer allocation
+// based on client capability.
+extern int32_t srcCameraWidth;
+extern int32_t srcCameraHeight;
 
 enum class VideoBufferType {
     kI420,
@@ -16,8 +23,8 @@ enum class VideoBufferType {
 };
 
 struct Resolution {
-    int width = 640;
-    int height = 480;
+    int width = srcCameraWidth;
+    int height = srcCameraHeight;
 };
 /// Video buffer and its information
 struct VideoBuffer {
@@ -59,7 +66,7 @@ public:
     ClientVideoBuffer() {
         for (int i = 0; i < 1; i++) {
             clientBuf[i].buffer =
-                new uint8_t[clientBuf[i].resolution.width * clientBuf[i].resolution.height * 3 / 2];
+                new uint8_t[clientBuf[i].resolution.width * clientBuf[i].resolution.height * BPP_NV12];
         }
         clientRevCount = 0;
         clientUsedCount = 0;

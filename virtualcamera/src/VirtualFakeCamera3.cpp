@@ -55,6 +55,9 @@ using namespace chrono_literals;
 
 namespace android {
 
+int32_t srcCameraWidth;
+int32_t srcCameraHeight;
+
 using namespace socket;
 /**
  * Constants for camera capabilities
@@ -70,12 +73,6 @@ const int32_t VirtualFakeCamera3::kAvailableFormats[] = {
     //        HAL_PIXEL_FORMAT_YV12,
     //        HAL_PIXEL_FORMAT_YCrCb_420_SP,
     HAL_PIXEL_FORMAT_YCbCr_420_888, HAL_PIXEL_FORMAT_Y16};
-
-const uint32_t VirtualFakeCamera3::kAvailableRawSizes[4] = {
-    640, 480,
-    // 1280, 720
-    //    mSensorWidth, mSensorHeight
-};
 
 /**
  * 3A constants
@@ -121,8 +118,8 @@ VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_
     mAeTargetExposureTime = kNormalExposureTime;
     mAeCurrentExposureTime = kNormalExposureTime;
     mAeCurrentSensitivity = kNormalSensitivity;
-    mSensorWidth = 640;
-    mSensorHeight = 480;
+    mSensorWidth = 0;
+    mSensorHeight = 0;
     mInputStream = NULL;
 }
 
@@ -856,8 +853,6 @@ const camera_metadata_t *VirtualFakeCamera3::constructDefaultRequestSettings(int
 status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *request) {
     Mutex::Autolock l(mLock);
     status_t res;
-    status_t ret;
-    uint64_t useflag = 0;
     mprocessCaptureRequestFlag = true;
     /** Validation */
 
@@ -995,9 +990,6 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         destBuf.format = (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
                              ? HAL_PIXEL_FORMAT_RGBA_8888
                              : srcBuf.stream->format;
-        // Fix ME (dest buffer fixed for 640x480)
-        // destBuf.width = 640;
-        // destBuf.height = 480;
         // inline with goldfish gralloc
         if (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
 #ifndef USE_GRALLOC1
@@ -1233,29 +1225,46 @@ bool VirtualFakeCamera3::hasCapability(AvailableCapabilities cap) {
     return idx >= 0;
 }
 
+void VirtualFakeCamera3::setMaxSupportedResolution(int32_t width, int32_t height) {
+    // Updating max sensor supported resolution based on client camera.
+    // This would be used in sensor related operations and metadata info.
+    mSensorWidth = width;
+    mSensorHeight = height;
+
+    // Updating camera input resolution from max sensor supported res.
+    // This would be used in camera input buffer allocation and clearing.
+    srcCameraWidth = mSensorWidth;
+    srcCameraHeight = mSensorHeight;
+
+    ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d",
+           __func__, mCameraID, mSensorWidth, mSensorHeight);
+}
+
 status_t VirtualFakeCamera3::constructStaticInfo() {
     CameraMetadata info;
     Vector<int32_t> availableCharacteristicsKeys;
     status_t res;
-
-    // Find max width/height
     int32_t width = 0, height = 0;
-    size_t rawSizeCount = sizeof(kAvailableRawSizes) / sizeof(kAvailableRawSizes[0]);
-    for (size_t index = 0; index + 1 < rawSizeCount; index += 2) {
-        if (width <= (int32_t)kAvailableRawSizes[index] &&
-            height <= (int32_t)kAvailableRawSizes[index + 1]) {
-            width = kAvailableRawSizes[index];
-            height = kAvailableRawSizes[index + 1];
-        }
-    }
+    char value[PROPERTY_VALUE_MAX];
 
-    if (width < 1280 || height < 720) {
+
+    // TODO: Need to select the res based on negotiation with client camera HW.
+    // Currently based on property. Wiil be removed this later.
+    property_get("persist.camera.max.supported.res", value, nullptr);
+    int Resolution = atoi(value);
+
+    if (Resolution == 1080) {
+        width = 1920;
+        height = 1080;
+    } else if (Resolution == 720){
+        width = 1280;
+        height = 720;
+    } else { // Default is 480p
         width = 640;
         height = 480;
     }
-    mSensorWidth = width;
-    mSensorHeight = height;
-    ALOGE("%s: [width:height] [%d:%d]", __func__, mSensorWidth, mSensorHeight);
+
+    setMaxSupportedResolution(width, height);
 
 #define ADD_STATIC_ENTRY(name, varptr, count) \
     availableCharacteristicsKeys.add(name);   \
@@ -1437,39 +1446,29 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     // android.scaler
 
-    const std::vector<int32_t> availableStreamConfigurationsBasic = {
+    const std::vector<int32_t> availableStreamConfigurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
+
+    const std::vector<int32_t> availableStreamConfigurations1080p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_BLOB,
-        320,
-        240,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_BLOB,
-        176,
-        144,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int32_t> availableStreamConfigurationsBasic640 = {
+    const std::vector<int32_t> availableStreamConfigurations720p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
         640,
         480,
@@ -1481,7 +1480,23 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT};
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
+
+    const std::vector<int32_t> availableStreamConfigurations480p = {
+        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCbCr_420_888,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
 
     const std::vector<int32_t> availableStreamConfigurationsRaw = {
         HAL_PIXEL_FORMAT_RAW16,
@@ -1508,14 +1523,44 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int32_t> availableStreamConfigurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                             availableStreamConfigurationsBasic.begin(),
-                                             availableStreamConfigurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                                 availableStreamConfigurationsBasic640.begin(),
-                                                 availableStreamConfigurationsBasic640.end());
-        }
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations1080p.begin(),
+                                                 availableStreamConfigurations1080p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations720p.begin(),
+                                                 availableStreamConfigurations720p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
+
+        } else if (width == 1280 && height == 720) {
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations720p.begin(),
+                                                 availableStreamConfigurations720p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
+        } else { // For 480p
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
+	}
     }
     if (hasCapability(RAW)) {
         availableStreamConfigurations.insert(availableStreamConfigurations.end(),
@@ -1533,39 +1578,29 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          &availableStreamConfigurations[0], availableStreamConfigurations.size());
     }
 
-    const std::vector<int64_t> availableMinFrameDurationsBasic = {
+    const std::vector<int64_t> availableMinFrameDurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableMinFrameDurations1080p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_BLOB,
-        320,
-        240,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_BLOB,
-        176,
-        144,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int64_t> availableMinFrameDurationsBasic640 = {
+    const std::vector<int64_t> availableMinFrameDurations720p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
         640,
         480,
@@ -1577,7 +1612,23 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        Sensor::kFrameDurationRange[0]};
+        Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableMinFrameDurations480p = {
+        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCbCr_420_888,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+    };
 
     const std::vector<int64_t> availableMinFrameDurationsRaw = {
         HAL_PIXEL_FORMAT_RAW16,
@@ -1604,14 +1655,44 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int64_t> availableMinFrameDurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableMinFrameDurations.insert(availableMinFrameDurations.end(),
-                                          availableMinFrameDurationsBasic.begin(),
-                                          availableMinFrameDurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
-                                              availableMinFrameDurationsBasic640.begin(),
-                                              availableMinFrameDurationsBasic640.end());
-        }
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations1080p.begin(),
+                                              availableMinFrameDurations1080p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations720p.begin(),
+                                              availableMinFrameDurations720p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
+        } else if (width == 1280 && height == 720) {
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations720p.begin(),
+                                              availableMinFrameDurations720p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
+        } else { // For 480p
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
+	}
     }
     if (hasCapability(RAW)) {
         availableMinFrameDurations.insert(availableMinFrameDurations.end(),
@@ -1629,51 +1710,32 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          &availableMinFrameDurations[0], availableMinFrameDurations.size());
     }
 
-    const std::vector<int64_t> availableStallDurationsBasic = {
+    const std::vector<int64_t> availableStallDurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_RGBA_8888,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        0,
-        HAL_PIXEL_FORMAT_RGBA_8888,
-        176,
-        144,
-        0,
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int64_t> availableStallDurationsBasic640 = {
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        640,
-        480,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        640,
-        480,
-        0,
+    const std::vector<int64_t> availableStallDurations1080p = {
+        HAL_PIXEL_FORMAT_BLOB,
+        1280,
+        720,
+        Sensor::kFrameDurationRange[0],
+    };
+    const std::vector<int64_t> availableStallDurations720p = {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        Sensor::kFrameDurationRange[0]};
+        Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableStallDurations480p = {
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+    };
 
     const std::vector<int64_t> availableStallDurationsRaw = {HAL_PIXEL_FORMAT_RAW16, 640, 480,
                                                              Sensor::kFrameDurationRange[0]};
@@ -1694,14 +1756,43 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int64_t> availableStallDurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableStallDurations.insert(availableStallDurations.end(),
-                                       availableStallDurationsBasic.begin(),
-                                       availableStallDurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableStallDurations.insert(availableStallDurations.end(),
-                                           availableStallDurationsBasic640.begin(),
-                                           availableStallDurationsBasic640.end());
-        }
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations1080p.begin(),
+                                           availableStallDurations1080p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations720p.begin(),
+                                           availableStallDurations720p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
+        } else if (width == 1280 && height == 720) {
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations720p.begin(),
+                                           availableStallDurations720p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
+        } else { // For 480p
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
+	}
     }
     if (hasCapability(RAW)) {
         availableStallDurations.insert(availableStallDurations.end(),

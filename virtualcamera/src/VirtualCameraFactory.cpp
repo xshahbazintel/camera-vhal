@@ -297,6 +297,8 @@ void VirtualCameraFactory::createFakeCamera(std::shared_ptr<CameraSocketServerTh
               halVersion);
         status_t res = mVirtualCameras[mVirtualCameraNum]->Initialize(nullptr, nullptr, nullptr);
         if (res == NO_ERROR) {
+            ALOGI("%s: Initialization for %s Camera ID: %d completed sucessfully..",
+                  __FUNCTION__, backCamera ? "Back" : "Front", mVirtualCameraNum);
             // Camera creation and initialization was successful.
             mVirtualCameraNum++;
         } else {
