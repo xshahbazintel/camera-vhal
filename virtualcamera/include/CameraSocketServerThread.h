@@ -45,6 +45,7 @@ public:
     int getClientFd();
     void clearBuffer(char *buffer, int width, int height);
     bool configureCapabilities(bool skipReqCapability);
+    void setCameraResolution(uint32_t resolution);
 
 private:
     virtual status_t readyToRun();

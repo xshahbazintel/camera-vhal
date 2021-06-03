@@ -17,6 +17,8 @@ extern bool gUseVaapi;
 extern int32_t srcCameraWidth;
 extern int32_t srcCameraHeight;
 
+extern bool gCapabilityInfoReceived;
+
 enum class VideoBufferType {
     kI420,
     kARGB,

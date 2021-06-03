@@ -48,6 +48,11 @@ android::ClientVideoBuffer *android::ClientVideoBuffer::ic_instance = 0;
 
 namespace android {
 
+int32_t srcCameraWidth;
+int32_t srcCameraHeight;
+
+bool gCapabilityInfoReceived;
+
 using namespace socket;
 CameraSocketServerThread::CameraSocketServerThread(std::string suffix,
         std::shared_ptr<CGVideoDecoder> decoder,
@@ -103,6 +108,29 @@ void CameraSocketServerThread::clearBuffer(char *buffer, int width, int height) 
     memset(buffer, 0x10, (width * height));
     memset(uv_offset, 0x80, (width * height) / 2);
     ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
+}
+
+void CameraSocketServerThread::setCameraResolution(uint32_t resolution) {
+    ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
+
+    switch (resolution) {
+         case uint32_t(FrameResolution::k480p):
+             srcCameraWidth = 640;
+             srcCameraHeight = 480;
+             break;
+         case uint32_t(FrameResolution::k720p):
+             srcCameraWidth = 1280;
+             srcCameraHeight = 720;
+             break;
+         case uint32_t(FrameResolution::k1080p):
+             srcCameraWidth = 1920;
+             srcCameraHeight = 1080;
+             break;
+         default:
+             break;
+    }
+    ALOGI(LOG_TAG "%s: Set Camera resolution: %dx%d",
+		   __FUNCTION__, srcCameraWidth, srcCameraHeight);
 }
 
 bool CameraSocketServerThread::configureCapabilities(bool skipReqCapability) {
@@ -207,10 +235,27 @@ bool CameraSocketServerThread::configureCapabilities(bool skipReqCapability) {
              break;
     }
 
-    if (validResolution && validCodecType) {
-        // Store codec type and resolution.
-        mVideoDecoder->setCodecTypeAndResolution(config.codec_type, config.resolution);
+    if (validResolution) {
+        // Set Camera capable resolution based on remote client capability info.
+        setCameraResolution(config.resolution);
+    } else {
+        // Set default resolution if receive invalid capability info from client.
+        // Default resolution would be 480p.
+        setCameraResolution((uint32_t)FrameResolution::k480p);
+        ALOGE(LOG_TAG "%s: Not received valid resolution, "
+                       "hence selected 480p as default", __FUNCTION__);
     }
+
+    if (validResolution && validCodecType) {
+        // Store codec type and resolution based on remote client capability info.
+        mVideoDecoder->setCodecTypeAndResolution(config.codec_type, config.resolution);
+    } else {
+        mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
+                (uint32_t)FrameResolution::k480p);
+        ALOGE(LOG_TAG "%s: Not received valid resolution and codec type, "
+                       "hence selected 480p and H264 as default", __FUNCTION__);
+    }
+
     ack_payload = (validResolution && validCodecType) ? ACK_CONFIG : NACK_CONFIG;
 
     ack_packet->header.type = ACK;
@@ -295,11 +340,14 @@ bool CameraSocketServerThread::threadLoop() {
         }
         mClientFd = new_client_fd;
 
-        // Store codec type and resolution.
-        mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
-                (uint32_t)FrameResolution::k480p);
-
-        configureCapabilities(false);
+        bool status = false;
+        status = configureCapabilities(false);
+        if (status) {
+            ALOGI(LOG_TAG "%s: Client camera capability info received successfully..",
+                           __FUNCTION__);
+            // Update Capability exchange completed sucessfully.
+            gCapabilityInfoReceived = true;
+        }
 
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         char *fbuffer = (char *)handle->clientBuf[handle->clientRevCount % 1].buffer;
@@ -348,7 +396,14 @@ bool CameraSocketServerThread::threadLoop() {
                               header.size);
                         if (header.type == REQUEST_CAPABILITY) {
                             // Negotiate and configure capabilities
-                            configureCapabilities(true);
+                            // if it is not happened previously.
+                            status = configureCapabilities(true);
+                            if (status) {
+                                ALOGI(LOG_TAG "%s: Capability info received", __FUNCTION__);
+                                // Update Capability exchange completed sucessfully
+                                // if it is not updated before.
+                                gCapabilityInfoReceived = true;
+                            }
                             continue;
                         } else if (header.type != CAMERA_DATA) {
                             ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s", __FUNCTION__,

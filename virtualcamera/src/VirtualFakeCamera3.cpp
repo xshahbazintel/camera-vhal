@@ -55,9 +55,6 @@ using namespace chrono_literals;
 
 namespace android {
 
-int32_t srcCameraWidth;
-int32_t srcCameraHeight;
-
 using namespace socket;
 /**
  * Constants for camera capabilities
@@ -1230,12 +1227,6 @@ void VirtualFakeCamera3::setMaxSupportedResolution(int32_t width, int32_t height
     // This would be used in sensor related operations and metadata info.
     mSensorWidth = width;
     mSensorHeight = height;
-
-    // Updating camera input resolution from max sensor supported res.
-    // This would be used in camera input buffer allocation and clearing.
-    srcCameraWidth = mSensorWidth;
-    srcCameraHeight = mSensorHeight;
-
     ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d",
            __func__, mCameraID, mSensorWidth, mSensorHeight);
 }
@@ -1245,25 +1236,24 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     Vector<int32_t> availableCharacteristicsKeys;
     status_t res;
     int32_t width = 0, height = 0;
-    char value[PROPERTY_VALUE_MAX];
 
-
-    // TODO: Need to select the res based on negotiation with client camera HW.
-    // Currently based on property. Wiil be removed this later.
-    property_get("persist.camera.max.supported.res", value, nullptr);
-    int Resolution = atoi(value);
-
-    if (Resolution == 1080) {
-        width = 1920;
-        height = 1080;
-    } else if (Resolution == 720){
-        width = 1280;
-        height = 720;
-    } else { // Default is 480p
-        width = 640;
-        height = 480;
+    // Check whether capability info is received or not and
+    // wait until receive capability info from client HW.
+    // Metadata will be updated always based on this capability
+    // info from the client Camera HW.
+    while (!gCapabilityInfoReceived) {
+        ALOGVV("%s: waiting for the capability info...", __func__);
+        // 1ms sleep for this thread.
+        std::this_thread::sleep_for(1ms);
     }
 
+    ALOGVV("%s: Received capability info from Client Device for Camera %d",
+            __func__, mCameraID);
+    // Updating width and height based on capability info.
+    width = srcCameraWidth;
+    height = srcCameraHeight;
+
+    // Setting the max supported Camera resolution.
     setMaxSupportedResolution(width, height);
 
 #define ADD_STATIC_ENTRY(name, varptr, count) \
