@@ -70,8 +70,8 @@ status_t VirtualCamera3::Initialize(const char *device_name, const char *frame_d
  * Camera API implementation
  ***************************************************************************/
 
-status_t VirtualCamera3::connectCamera(hw_device_t **device) {
-    ALOGV("%s", __FUNCTION__);
+status_t VirtualCamera3::openCamera(hw_device_t **device) {
+    ALOGV("%s: E", __FUNCTION__);
     if (device == NULL) return BAD_VALUE;
 
     if (mStatus != STATUS_CLOSED) {
@@ -81,6 +81,7 @@ status_t VirtualCamera3::connectCamera(hw_device_t **device) {
 
     *device = &common;
     mStatus = STATUS_OPEN;
+    ALOGI("%s : Camera session opened successfully..", __FUNCTION__);
     return NO_ERROR;
 }
 

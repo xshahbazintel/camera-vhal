@@ -61,7 +61,7 @@ public:
      * NOTE: When this method is called the object is locked.
      * Note that failures in this method are reported as negative EXXX statuses.
      */
-    virtual status_t connectCamera(hw_device_t **device) = 0;
+    virtual status_t openCamera(hw_device_t **device) = 0;
 
     /* Closes connection to the virtual camera.
      * This method is called in response to camera_device::close callback.

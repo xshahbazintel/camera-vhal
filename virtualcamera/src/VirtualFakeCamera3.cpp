@@ -55,6 +55,9 @@ using namespace chrono_literals;
 
 namespace android {
 
+int32_t srcWidth;
+int32_t srcHeight;
+
 using namespace socket;
 /**
  * Constants for camera capabilities
@@ -117,7 +120,14 @@ VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_
     mAeCurrentSensitivity = kNormalSensitivity;
     mSensorWidth = 0;
     mSensorHeight = 0;
+    mSrcWidth = 0;
+    mSrcHeight = 0;
+    mDecoderResolution = 0;
+    mDecoderInitDone = false;
     mInputStream = NULL;
+    mSensor = NULL;
+    mReadoutThread = NULL;
+    mJpegCompressor = NULL;
 }
 
 VirtualFakeCamera3::~VirtualFakeCamera3() {
@@ -153,6 +163,35 @@ status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *fra
     return VirtualCamera3::Initialize(nullptr, nullptr, nullptr);
 }
 
+status_t VirtualFakeCamera3::openCamera(hw_device_t **device) {
+    ALOGI(LOG_TAG "%s: E", __FUNCTION__);
+    Mutex::Autolock l(mLock);
+
+    return VirtualCamera3::openCamera(device);
+}
+
+uint32_t VirtualFakeCamera3::setDecoderResolution(uint32_t resolution) {
+    ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
+    uint32_t res = 0;
+    switch (resolution) {
+        case DECODER_SUPPORTED_RESOLUTION_480P:
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_720P:
+            res = (uint32_t)FrameResolution::k720p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_1080P:
+            res = (uint32_t)FrameResolution::k1080p;
+            break;
+        default:
+            ALOGI("%s: Selected default 480p resolution!!!", __func__);
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+    }
+
+    ALOGI("%s: Resolution selected for decoder init is %s", __func__, resolution_to_str(res));
+    return res;
+}
 status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
@@ -162,7 +201,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd.version = CAMERA_VHAL_VERSION_2;
     config_cmd.cmd = cmd;
     config_cmd.config.codec_type = mDecoder->getCodecType();
-    config_cmd.config.resolution = (uint32_t) FrameResolution::k480p;
+    config_cmd.config.resolution = mDecoderResolution;
 
     camera_packet_t* config_cmd_packet = NULL;
 
@@ -198,17 +237,19 @@ out:
     return status;
 }
 
-status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
+status_t VirtualFakeCamera3::connectCamera() {
     ALOGI(LOG_TAG "%s: E", __FUNCTION__);
-    Mutex::Autolock l(mLock);
 
     if (gIsInFrameH264) {
         const char *device_name = gUseVaapi ? "vaapi" : nullptr;
+
+        mDecoderResolution = setDecoderResolution(mSrcHeight);
         // initialize decoder
-        if (mDecoder->init(VideoCodecType::kH264, FrameResolution::k480p, device_name, 0) < 0) {
+        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, device_name, 0) < 0) {
             ALOGE("%s VideoDecoder init failed. %s decoding", __func__,
                   !device_name ? "SW" : device_name);
         } else {
+            mDecoderInitDone = true;
             ALOGI("%s VideoDecoder init done. Device: %s", __func__,
                   !device_name ? "SW" : device_name);
         }
@@ -224,7 +265,7 @@ status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
     mCameraSessionState = CameraSessionState::kCameraOpened;
 
     // create sensor who gets decoded frames and forwards them to framework
-    mSensor = new Sensor(mSensorWidth, mSensorHeight, mDecoder);
+    mSensor = new Sensor(mSrcWidth, mSrcHeight, mDecoder);
     mSensor->setSensorListener(this);
 
     status_t res = mSensor->startUp();
@@ -251,7 +292,8 @@ status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
     mAeCurrentExposureTime = kNormalExposureTime;
     mAeCurrentSensitivity = kNormalSensitivity;
 
-    return VirtualCamera3::connectCamera(device);
+    return OK;
+
 }
 
 /**
@@ -278,14 +320,17 @@ status_t VirtualFakeCamera3::closeCamera() {
 
     mprocessCaptureRequestFlag = false;
 
+    if (mSensor == NULL) {
+        return VirtualCamera3::closeCamera();
+    }
+
     {
         Mutex::Autolock l(mLock);
         if (mStatus == STATUS_CLOSED) return OK;
 
         auto ret = mSensor->shutDown();
         if (ret != NO_ERROR) {
-            ALOGE("%s: Unable to shut down sensor: %d", __FUNCTION__, ret);
-            return ret;
+	    ALOGE("%s: Unable to shut down sensor: %d", __FUNCTION__, ret);
         }
         mSensor.clear();
 
@@ -298,9 +343,9 @@ status_t VirtualFakeCamera3::closeCamera() {
         Mutex::Autolock l(mLock);
         // Clear out private stream information
         for (StreamIterator s = mStreams.begin(); s != mStreams.end(); s++) {
-            PrivateStreamInfo *privStream = static_cast<PrivateStreamInfo *>((*s)->priv);
-            delete privStream;
-            (*s)->priv = NULL;
+	     PrivateStreamInfo *privStream = static_cast<PrivateStreamInfo *>((*s)->priv);
+	     delete privStream;
+	     (*s)->priv = NULL;
         }
         mStreams.clear();
         mReadoutThread.clear();
@@ -308,7 +353,7 @@ status_t VirtualFakeCamera3::closeCamera() {
 
     ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
     handle->reset();
-    ALOGI("%s VideoBuffers are reset", __func__);
+    ALOGI("%s: Camera input buffers are reset", __func__);
 
     // Set state to CameraClosed, so that SocketServerThread stops decoding.
     mCameraSessionState = CameraSessionState::kCameraClosed;
@@ -316,11 +361,11 @@ status_t VirtualFakeCamera3::closeCamera() {
     if (gIsInFrameH264) {
         int waitForCameraClose = 0;
         while (mCameraSessionState != socket::CameraSessionState::kDecodingStopped) {
-            std::this_thread::sleep_for(2ms);
-            waitForCameraClose += 2; // 2 corresponds to 2ms
-            if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION)
-                break;
-	}
+	    std::this_thread::sleep_for(2ms);
+	    waitForCameraClose += 2; // 2 corresponds to 2ms
+	if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION)
+	    break;
+        }
         ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
     }
 
@@ -328,8 +373,17 @@ status_t VirtualFakeCamera3::closeCamera() {
     status_t ret = sendCommandToClient(camera_cmd_t::CMD_CLOSE);
     if (ret != OK) {
         ALOGE("%s sendCommandToClient failed", __func__);
-        return ret;
     }
+
+    // Set NULL or Zero to some local members which would be updated in the
+    // next configure_streams call to support Dynamic multi-resolution.
+    mSrcWidth = 0;
+    mSrcHeight = 0;
+    mDecoderResolution = 0;
+    mDecoderInitDone = false;
+    mSensor = NULL;
+    mReadoutThread = NULL;
+    mJpegCompressor = NULL;
 
     return VirtualCamera3::closeCamera();
 }
@@ -346,6 +400,7 @@ status_t VirtualFakeCamera3::getCameraInfo(struct camera_info *info) {
 
 status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *streamList) {
     Mutex::Autolock l(mLock);
+    status_t res;
 
     if (mStatus != STATUS_OPEN && mStatus != STATUS_READY) {
         ALOGE("%s: Cannot configure streams in state %d", __FUNCTION__, mStatus);
@@ -383,9 +438,9 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
 
         ALOGI(
             " %s: Stream %p (id %zu), type %d, usage 0x%x, format 0x%x "
-            "width %d, height %d",
+            "width %d, height %d, rotation %d",
             __FUNCTION__, newStream, i, newStream->stream_type, newStream->usage, newStream->format,
-            newStream->width, newStream->height);
+            newStream->width, newStream->height, newStream->rotation);
 
         if (newStream->stream_type == CAMERA3_STREAM_INPUT ||
             newStream->stream_type == CAMERA3_STREAM_BIDIRECTIONAL) {
@@ -424,8 +479,20 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
             ALOGE("%s: Unsupported stream format 0x%x requested", __FUNCTION__, newStream->format);
             return BAD_VALUE;
         }
+
+        if (mSrcWidth < newStream->width && mSrcHeight < newStream->height) {
+            // Update app's res request to local variable.
+            mSrcWidth = newStream->width;
+            mSrcHeight = newStream->height;
+            // Update globally for clearing used buffers properly.
+            srcWidth = mSrcWidth;
+            srcHeight = mSrcHeight;
+        }
     }
     mInputStream = inputStream;
+
+    ALOGI("%s: Camera current input resolution is %dx%d", __FUNCTION__, mSrcWidth, mSrcHeight);
+
 
     /**
      * Initially mark all existing streams as not alive
@@ -509,6 +576,23 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
      * Can't reuse settings across configure call
      */
     mPrevSettings.clear();
+
+    /**
+     * Initialize Camera sensor and Input decoder based on app's res request.
+     */
+    if (!mDecoderInitDone) {
+        ALOGI("%s: Initializing decoder and sensor for new resolution request!!!", __func__);
+        res = connectCamera();
+        if (res != OK) {
+            return res;
+        }
+
+        // Fill the input buffer with black frame to avoid green frame
+        // while changing the resolution in each request.
+        ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
+        handle->clearBuffer();
+    }
+
     return OK;
 }
 

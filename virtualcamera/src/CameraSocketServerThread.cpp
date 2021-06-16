@@ -392,8 +392,8 @@ bool CameraSocketServerThread::threadLoop() {
                     camera_header_t header = {};
                     if ((size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
                                      MSG_WAITALL)) > 0) {
-                        ALOGVV("[H264] Received Header %zd bytes. Payload size: %u", size,
-                              header.size);
+                        ALOGVV("%s: Received Header %zd bytes. Payload size: %u", __FUNCTION__,
+                                size, header.size);
                         if (header.type == REQUEST_CAPABILITY) {
                             // Negotiate and configure capabilities
                             // if it is not happened previously.
@@ -415,7 +415,7 @@ bool CameraSocketServerThread::threadLoop() {
                             // maximum size of a H264 packet in any aggregation packet is 65535
                             // bytes. Source: https://tools.ietf.org/html/rfc6184#page-13
                             ALOGE(
-                                "%s Fatal: Unusual H264 packet size detected: %u! Max is %zu, ...",
+                                "%s Fatal: Unusual encoded packet size detected: %u! Max is %zu, ...",
                                 __func__, header.size, mSocketBuffer.size());
                             continue;
                         }
@@ -424,35 +424,38 @@ bool CameraSocketServerThread::threadLoop() {
                         if ((size = recv(mClientFd, (char *)mSocketBuffer.data(), header.size,
                                          MSG_WAITALL)) > 0) {
                             mSocketBufferSize = header.size;
-                            ALOGVV("%s [H264] Camera session state: %s", __func__,
+                            ALOGVV("%s: Camera session state: %s", __func__,
                                   kCameraSessionStateNames.at(mCameraSessionState).c_str());
                             switch (mCameraSessionState) {
                                 case CameraSessionState::kCameraOpened:
                                     mCameraSessionState = CameraSessionState::kDecodingStarted;
-                                    ALOGVV("%s [H264] Decoding started now.", __func__);
+                                    ALOGVV("%s: Decoding started now.", __func__);
                                 case CameraSessionState::kDecodingStarted:
                                     mVideoDecoder->decode(mSocketBuffer.data(), mSocketBufferSize);
                                     handle->clientRevCount++;
-                                    ALOGVV("%s [H264] Received Payload #%d %zd/%u bytes", __func__,
+                                    ALOGVV("%s: Received Payload #%d %zd/%u bytes", __func__,
                                           handle->clientRevCount, size, header.size);
                                     break;
                                 case CameraSessionState::kCameraClosed:
+				    ALOGI("%s: Decoding stopping and flushing decoder.", __func__);
                                     mVideoDecoder->flush_decoder();
                                     mVideoDecoder->destroy();
                                     mCameraSessionState = CameraSessionState::kDecodingStopped;
-                                    ALOGI("%s [H264] Decoding stopped now.", __func__);
+                                    ALOGI("%s: Decoding stopped now.", __func__);
                                     break;
                                 case CameraSessionState::kDecodingStopped:
-                                    ALOGVV("%s [H264] Decoding is already stopped, skip the packets",
+                                    ALOGVV("%s: Decoding is already stopped, skip the packets",
                                           __func__);
+				    break;
                                 default:
-                                    ALOGE("%s [H264] Invalid Camera session state!", __func__);
+                                    ALOGE("%s: Invalid Camera session state!", __func__);
                                     break;
                             }
                         }
                     }
                 } else {
-                    ALOGE("%s: only H264, I420 input frames supported", __FUNCTION__);
+                    ALOGE("%s: Only H264, H265, I420 Input frames are supported. Check Input format",
+                           __FUNCTION__);
                 }
             } else {
                 //    ALOGE("%s: continue polling..", __FUNCTION__);

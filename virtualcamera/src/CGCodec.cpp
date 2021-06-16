@@ -244,15 +244,13 @@ uint32_t CGVideoDecoder::getCodecType() {
     return codec_type;
 }
 
-int CGVideoDecoder::init(android::socket::VideoCodecType codec_type, android::socket::FrameResolution resolution_type, const char *device_name,
+int CGVideoDecoder::init(android::socket::FrameResolution resolution_type, const char *device_name,
                          int extra_hw_frames) {
-    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(this->resolution)));
+    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(resolution_type)));
     init_failed_ = true;
 
     AVCodecID codec_id = (this->codec_type == int(android::socket::VideoCodecType::kH265)) ?
             AV_CODEC_ID_H265 : AV_CODEC_ID_H264;
-
-    ALOGW("Note: Currently we decode only H264 frames!");
 
     const AVCodec *codec = avcodec_find_decoder(codec_id);
     if (codec == nullptr) {
@@ -360,7 +358,7 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
         }
         decode_stat = avcodec_receive_frame(c, frame);
         if (decode_stat == AVERROR(EAGAIN) || decode_stat == AVERROR_EOF) {
-            ALOGW("%s avcodec_receive_frame returned AVERROR(EAGAIN) | AVERROR_EOF%d\n", __func__,
+            ALOGVV("%s avcodec_receive_frame returned AVERROR(EAGAIN) | AVERROR_EOF%d\n", __func__,
                   decode_stat);
             break;
         } else if (decode_stat < 0) {
@@ -372,7 +370,12 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
         if (frame->width != m_decode_ctx->resolution.first ||
             frame->height != m_decode_ctx->resolution.second ||
             (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_VAAPI)) {
-            ALOGW("video format mismatch: %d %d %d\n", frame->width, frame->height, frame->format);
+            ALOGW("%s: Camera input res from client is %dx%d, but decoder initialized with %dx%d",
+                   __func__, frame->width, frame->height, m_decode_ctx->resolution.first,
+                   m_decode_ctx->resolution.second);
+            if (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_VAAPI)
+                ALOGW("%s: Camera input frame format %d is not matching with Decoder format",
+                       __func__, frame->format);
             av_frame_free(&frame);
             return -1;
         }

@@ -72,7 +72,7 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t connectCamera(hw_device_t **device);
+    virtual status_t openCamera(hw_device_t **device);
 
     virtual status_t closeCamera();
 
@@ -98,6 +98,13 @@ protected:
     virtual void dump(int fd);
 
 private:
+
+    /** Initialize the Sensor and Decoder part of the Camera*/
+    status_t connectCamera();
+
+    /** Set the Decoder resolution based on the app's res request*/
+    uint32_t setDecoderResolution(uint32_t resolution);
+
     /**
      * Get the requested capability set for this camera
      */
@@ -161,6 +168,12 @@ private:
     int32_t mSensorWidth;
     int32_t mSensorHeight;
 
+    uint32_t mSrcWidth;
+    uint32_t mSrcHeight;
+
+    uint32_t mDecoderResolution;
+    bool mDecoderInitDone;
+
     SortedVector<AvailableCapabilities> mCapabilities;
 
     /**
@@ -203,6 +216,12 @@ private:
 
     bool createSocketServer(bool facing_back);
     status_t sendCommandToClient(socket::camera_cmd_t cmd);
+
+    enum DecoderResolution {
+        DECODER_SUPPORTED_RESOLUTION_480P = 480,
+        DECODER_SUPPORTED_RESOLUTION_720P = 720,
+        DECODER_SUPPORTED_RESOLUTION_1080P = 1080,
+    };
 
     /** Processing thread for sending out results */
 

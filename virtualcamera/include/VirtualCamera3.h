@@ -93,7 +93,7 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t connectCamera(hw_device_t **device);
+    virtual status_t openCamera(hw_device_t **device);
 
     virtual status_t closeCamera();
 

@@ -11,11 +11,16 @@ extern bool gIsInFrameI420;
 extern bool gIsInFrameH264;
 extern bool gUseVaapi;
 
-// Camera input res width and height.
+// Camera max input supported res width and height.
 // This would be used for buffer allocation
 // based on client capability.
 extern int32_t srcCameraWidth;
 extern int32_t srcCameraHeight;
+
+// Camera input res width and height during running
+// condition. It would vary based on app's request.
+extern int32_t srcWidth;
+extern int32_t srcHeight;
 
 extern bool gCapabilityInfoReceived;
 
@@ -38,12 +43,22 @@ struct VideoBuffer {
     VideoBufferType type;
     ~VideoBuffer() {}
 
+    // To reset allocated buffer.
     void reset() {
         std::fill(buffer, buffer + resolution.width * resolution.height, 0x10);
         uint8_t* uv_offset = buffer + resolution.width * resolution.height;
         std::fill(uv_offset, uv_offset + (resolution.width * resolution.height) / 2, 0x80);
         decoded = false;
     }
+
+    // To clear used buffer based on current resolution.
+    void clearBuffer() {
+        std::fill(buffer, buffer + srcWidth * srcHeight, 0x10);
+        uint8_t* uv_offset = buffer + srcWidth * srcHeight;
+        std::fill(uv_offset, uv_offset + (srcWidth * srcHeight) / 2, 0x80);
+        decoded = false;
+    }
+
     bool decoded = false;
 };
 
@@ -83,6 +98,14 @@ public:
     void reset() {
         for (int i = 0; i < 1; i++) {
             clientBuf[i].reset();
+        }
+        clientRevCount = clientUsedCount = 0;
+        receivedFrameNo = decodedFrameNo = 0;
+    }
+
+    void clearBuffer() {
+        for (int i = 0; i < 1; i++) {
+            clientBuf[i].clearBuffer();
         }
         clientRevCount = clientUsedCount = 0;
         receivedFrameNo = decodedFrameNo = 0;

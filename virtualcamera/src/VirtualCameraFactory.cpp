@@ -183,7 +183,7 @@ int VirtualCameraFactory::cameraDeviceOpen(int cameraId, hw_device_t **device) {
         return -ENODEV;
     }
 
-    return mVirtualCameras[cameraId]->connectCamera(device);
+    return mVirtualCameras[cameraId]->openCamera(device);
 }
 
 int VirtualCameraFactory::getCameraInfo(int cameraId, struct camera_info *info) {

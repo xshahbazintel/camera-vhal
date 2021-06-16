@@ -113,12 +113,11 @@ public:
 
     /**
      * Initialize the CGVideoDecoder
-     * @param codec_type        see @enum camera_video_codec_t in @file cg_protocol.h
      * @param resolution_type   see @enum camera_video_resolution_t in @file cg_protocol.h
      * @param device_name       the string of hardware acclerator device, such as "vaapi"
      * @param extra_hw_frames   allocate extra frames for hardware acclerator when decoding
      */
-    int init(android::socket::VideoCodecType codec_type, android::socket::FrameResolution resolution_type, const char *device_name = nullptr,
+    int init(android::socket::FrameResolution resolution_type, const char *device_name = nullptr,
              int extra_hw_frames = 0);
 
     /**

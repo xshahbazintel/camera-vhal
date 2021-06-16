@@ -528,7 +528,7 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     int cameraInputDataSize;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
-        ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
+        ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
         return;
     }
 
@@ -825,7 +825,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         } else {
             // For NV12 Input support. No Color conversion
-            ALOGVV(LOG_TAG " %s: H264 to NV12 no scaling required: Size = %dx%d",
+            ALOGVV(LOG_TAG " %s: NV12 frame without scaling and color conversion: Size = %dx%d",
                    __FUNCTION__, width, height);
             memcpy(img, bufData, cameraInputDataSize);
         }
@@ -888,7 +888,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         } else {
             // For NV12 Input support
-            ALOGVV(LOG_TAG " %s: H264 with scaling Size = %dx%d", __FUNCTION__, width, height);
+            ALOGVV(LOG_TAG " %s: NV12 frame with scaling to Size = %dx%d", __FUNCTION__, width, height);
 
             const uint8_t *src_y = bufData;
             int src_stride_y = mSrcWidth;
@@ -969,7 +969,7 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     int cameraInputDataSize;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
-	ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
+	ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
 	return;
     }
 
