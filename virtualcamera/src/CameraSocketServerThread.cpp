@@ -133,7 +133,7 @@ void CameraSocketServerThread::setCameraResolution(uint32_t resolution) {
 		   __FUNCTION__, srcCameraWidth, srcCameraHeight);
 }
 
-bool CameraSocketServerThread::configureCapabilities(bool skipReqCapability) {
+bool CameraSocketServerThread::configureCapabilities() {
     ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
 
     bool status = false, validCodecType = false, validResolution = false;
@@ -149,19 +149,18 @@ bool CameraSocketServerThread::configureCapabilities(bool skipReqCapability) {
     camera_packet_t* ack_packet = NULL;
     camera_header_t header = {};
 
-    if (!skipReqCapability) {
-        if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
-                                         MSG_WAITALL)) < 0) {
-            ALOGE(LOG_TAG "%s: Failed to receive header, err: %s ", __FUNCTION__,
-                    strerror(errno));
-            goto out;
-        }
-        if (header.type != REQUEST_CAPABILITY) {
-            ALOGE(LOG_TAG "%s: Invalid packet type\n", __FUNCTION__);
-            goto out;
-        }
-        ALOGI(LOG_TAG "%s: Received REQUEST_CAPABILITY header from client", __FUNCTION__);
+    if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
+                          MSG_WAITALL)) < 0) {
+         ALOGE(LOG_TAG "%s: Failed to receive header, err: %s ", __FUNCTION__,
+                        strerror(errno));
+         goto out;
     }
+
+    if (header.type != REQUEST_CAPABILITY) {
+        ALOGE(LOG_TAG "%s: Invalid packet type\n", __FUNCTION__);
+        goto out;
+    }
+    ALOGI(LOG_TAG "%s: Received REQUEST_CAPABILITY header from client", __FUNCTION__);
 
     cap_packet = (camera_packet_t*) malloc(cap_packet_size);
     if (cap_packet == NULL) {
@@ -341,7 +340,7 @@ bool CameraSocketServerThread::threadLoop() {
         mClientFd = new_client_fd;
 
         bool status = false;
-        status = configureCapabilities(false);
+        status = configureCapabilities();
         if (status) {
             ALOGI(LOG_TAG "%s: Client camera capability info received successfully..",
                            __FUNCTION__);
@@ -395,15 +394,10 @@ bool CameraSocketServerThread::threadLoop() {
                         ALOGVV("%s: Received Header %zd bytes. Payload size: %u", __FUNCTION__,
                                 size, header.size);
                         if (header.type == REQUEST_CAPABILITY) {
-                            // Negotiate and configure capabilities
-                            // if it is not happened previously.
-                            status = configureCapabilities(true);
-                            if (status) {
-                                ALOGI(LOG_TAG "%s: Capability info received", __FUNCTION__);
-                                // Update Capability exchange completed sucessfully
-                                // if it is not updated before.
-                                gCapabilityInfoReceived = true;
-                            }
+                            ALOGI(LOG_TAG "%s: [Warning] Capability negotiation was already "
+                                           "done with %dx%d; Can't do re-negotiation again in "
+                                           "the run-time!!!", __FUNCTION__, srcCameraWidth,
+                                           srcCameraHeight);
                             continue;
                         } else if (header.type != CAMERA_DATA) {
                             ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s", __FUNCTION__,
