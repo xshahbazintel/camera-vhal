@@ -48,38 +48,6 @@ CGPixelFormat CGVideoFrame::format() {
     }
 }
 
-int CGVideoFrame::copy_to_buffer(uint8_t **buffer, int *size) {
-    ALOGVV("%s E", __func__);
-
-    if (!buffer || !size) {
-        ALOGW("Bad input parameter.\n");
-        return -1;
-    }
-
-    int buf_size = av_image_get_buffer_size((AVPixelFormat)m_avframe->format, m_avframe->width,
-                                            m_avframe->height, 1);
-    uint8_t *out_buffer = (uint8_t *)malloc(buf_size);
-    if (!out_buffer) {
-        ALOGW("Can not alloc buffer\n");
-        return -1;
-    }
-
-    int ret =
-        av_image_copy_to_buffer(out_buffer, buf_size, (const uint8_t *const *)m_avframe->data,
-                                (const int *)m_avframe->linesize, (AVPixelFormat)m_avframe->format,
-                                m_avframe->width, m_avframe->height, 1);
-    if (ret < 0) {
-        ALOGW("Can not copy image to buffer\n");
-        free(out_buffer);
-        return -1;
-    }
-
-    *size = buf_size;
-    *buffer = out_buffer;
-    ALOGVV("%s: X", __func__);
-    return 0;
-}
-
 int CGVideoFrame::copy_to_buffer(uint8_t *out_buffer, int *size) {
     ALOGVV("%s E", __func__);
 
@@ -233,19 +201,23 @@ void HWAccelContextDeleter::operator()(HWAccelContext *p) { delete p; }
 
 CGVideoDecoder::~CGVideoDecoder() { destroy(); }
 
-bool CGVideoDecoder::can_decode() const { return !init_failed_; }
+bool CGVideoDecoder::can_decode() const { return decoder_ready; }
 
 void CGVideoDecoder::setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution) {
     this->codec_type = codec_type;
-    this->resolution = resolution;
+    this->max_resolution = resolution;
 }
 
 uint32_t CGVideoDecoder::getCodecType() { return codec_type; }
 
 int CGVideoDecoder::init(android::socket::FrameResolution resolution_type, const char *device_name,
                          int extra_hw_frames) {
-    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(resolution_type)));
-    init_failed_ = true;
+    std::lock_guard<std::recursive_mutex> decode_push_lock(push_lock);
+    std::lock_guard<std::recursive_mutex> decode_pull_lock(pull_lock);
+    decoder_ready = false;
+    this->device_name = device_name;
+    this->resolution = resolution_type;
+    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(this->resolution)));
 
     AVCodecID codec_id = (this->codec_type == int(android::socket::VideoCodecType::kH265))
                              ? AV_CODEC_ID_H265
@@ -300,12 +272,17 @@ int CGVideoDecoder::init(android::socket::FrameResolution resolution_type, const
     m_decode_ctx->parser = parser;
     m_decode_ctx->avcodec_ctx = c;
     m_decode_ctx->packet = pkt;
-    init_failed_ = false;
+    decoder_ready = true;
     return 0;
 }
 
 int CGVideoDecoder::decode(const uint8_t *data, int data_size) {
     ALOGVV("%s E", __func__);
+    std::lock_guard<std::recursive_mutex> decode_access_lock(push_lock);
+    if (!can_decode()) {
+        ALOGE("%s Decoder not initialized", __func__);
+        return -1;
+    }
     if (data == nullptr || data_size <= 0) {
         ALOGE("%s Invalid args: m_decode_ctx: %p, data: %p, data_size: %d", __func__,
               m_decode_ctx.get(), data, data_size);
@@ -325,10 +302,26 @@ int CGVideoDecoder::decode(const uint8_t *data, int data_size) {
         } else {
             ALOGVV("%s av_parser_parse2 returned %d pkt->size: %d\n", __func__, ret, pkt->size);
         }
+
         data += ret;
         data_size -= ret;
 
-        if (pkt->size) decode_one_frame(pkt);
+        if (pkt->size) {
+            if (decode_one_frame(pkt) == AVERROR_INVALIDDATA) {
+                ALOGI("%s re-init", __func__);
+                flush_decoder();
+                destroy();
+                if (init((android::socket::FrameResolution)this->resolution, this->device_name, 0) <
+                    0) {
+                    ALOGE("%s re-init failed. %s decoding", __func__, device_name);
+                    return -1;
+                } else {
+                    pkt = m_decode_ctx->packet;
+                    parser = m_decode_ctx->parser;
+                    continue;
+                }
+            }
+        }
     }
 
     ALOGVV("%s X", __func__);
@@ -341,8 +334,8 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
 
     int sent = avcodec_send_packet(c, pkt);
     if (sent < 0) {
-        ALOGW("Error sending a packet for decoding\n");
-        return -1;
+        ALOGE("%s Error sending a packet for decoding: %s\n", __func__, av_err2str(sent));
+        return sent;
     }
 
     int decode_stat = 0;
@@ -357,8 +350,7 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
         }
         decode_stat = avcodec_receive_frame(c, frame);
         if (decode_stat == AVERROR(EAGAIN) || decode_stat == AVERROR_EOF) {
-            ALOGVV("%s avcodec_receive_frame returned AVERROR(EAGAIN) | AVERROR_EOF%d\n", __func__,
-                   decode_stat);
+            ALOGVV("%s avcodec_receive_frame returned: %s\n", __func__, av_err2str(decode_stat));
             break;
         } else if (decode_stat < 0) {
             ALOGW("Error during decoding\n");
@@ -392,8 +384,9 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
             }
 
             /* retrieve data from GPU to CPU */
-            if (av_hwframe_transfer_data(sw_frame, frame, 0) < 0) {
-                ALOGW("Error transferring the data to system memory\n");
+            int ret = av_hwframe_transfer_data(sw_frame, frame, 0);
+            if (ret < 0) {
+                ALOGE("Error transferring the data to system memory: %s\n", av_err2str(ret));
                 return -1;
             }
 
@@ -416,6 +409,11 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
 }
 
 int CGVideoDecoder::get_decoded_frame(CGVideoFrame::Ptr cg_frame) {
+    std::lock_guard<std::recursive_mutex> decode_access_lock(pull_lock);
+    if (!can_decode()) {
+        ALOGE("%s Decoder not initialized", __func__);
+        return -1;
+    }
     std::lock_guard<std::mutex> lock(m_decode_ctx->mutex_);
 
     if (m_decode_ctx->decoded_frames.empty()) return -1;
@@ -438,6 +436,7 @@ int CGVideoDecoder::get_decoded_frame(CGVideoFrame::Ptr cg_frame) {
 
 /* flush the decoder */
 int CGVideoDecoder::flush_decoder() {
+    std::lock_guard<std::recursive_mutex> decode_push_lock(push_lock);
     AVCodecContext *c = m_decode_ctx->avcodec_ctx;
     AVPacket *packet = m_decode_ctx->packet;
 
@@ -456,16 +455,22 @@ int CGVideoDecoder::flush_decoder() {
 }
 
 int CGVideoDecoder::destroy() {
+    std::lock_guard<std::recursive_mutex> decode_push_lock(push_lock);
+    std::lock_guard<std::recursive_mutex> decode_pull_lock(pull_lock);
+    decoder_ready = false;
     av_parser_close(m_decode_ctx->parser);
     avcodec_free_context(&m_decode_ctx->avcodec_ctx);
     av_packet_free(&m_decode_ctx->packet);
 
     if (!m_decode_ctx->decoded_frames.empty()) {
+        std::lock_guard<std::mutex> lock(m_decode_ctx->mutex_);
         for (auto frame : m_decode_ctx->decoded_frames) {
             av_frame_free(&frame);
         }
         m_decode_ctx->decoded_frames.clear();
     }
+    m_hw_accel_ctx.reset();
+    m_decode_ctx.reset();
 
     return 0;
 }

@@ -47,8 +47,6 @@
 #define ALOGVV(...) ((void)0)
 #endif
 
-#define MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION 12  // 12ms
-
 using namespace std;
 using namespace chrono;
 using namespace chrono_literals;
@@ -316,7 +314,6 @@ status_t VirtualFakeCamera3::closeCamera() {
         ALOGE(LOG_TAG " %s: wait:..", __FUNCTION__);
         std::this_thread::sleep_for(2500ms);
     }
-
     mprocessCaptureRequestFlag = false;
 
     if (mSensor == NULL) {
@@ -354,16 +351,11 @@ status_t VirtualFakeCamera3::closeCamera() {
     handle->reset();
     ALOGI("%s: Camera input buffers are reset", __func__);
 
-    // Set state to CameraClosed, so that SocketServerThread stops decoding.
-    mCameraSessionState = CameraSessionState::kCameraClosed;
-
     if (gIsInFrameH264) {
-        int waitForCameraClose = 0;
-        while (mCameraSessionState != socket::CameraSessionState::kDecodingStopped) {
-            std::this_thread::sleep_for(2ms);
-            waitForCameraClose += 2;  // 2 corresponds to 2ms
-            if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION) break;
-        }
+        // Set state to CameraClosed, so that SocketServerThread stops decoding.
+        mCameraSessionState = socket::CameraSessionState::kCameraClosed;
+        mDecoder->flush_decoder();
+        mDecoder->destroy();
         ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
     }
 

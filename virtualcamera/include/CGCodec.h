@@ -17,6 +17,7 @@
 #ifndef CG_CODEC_H
 #define CG_CODEC_H
 
+#include <mutex>
 #include <fstream>
 #include <memory>
 #include <stdlib.h>
@@ -57,13 +58,6 @@ public:
 
     CGPixelFormat format();
 
-    /*
-     * Copy frame data to data block buffer
-     * @param buffer[out]: destination buffer, should be freed by caller
-     * @param size[out]: output buffer size
-     * */
-    int copy_to_buffer(uint8_t **buffer /* out */, int *size /* out */);
-
     int copy_to_buffer(uint8_t *buffer /* out */, int *size /* out */);
 
 private:
@@ -98,11 +92,10 @@ class CGVideoDecoder {
 public:
     CGVideoDecoder() {
         codec_type = int(android::socket::VideoCodecType::kH264);
-        resolution = int(android::socket::FrameResolution::k480p);
+        resolution = android::socket::FrameResolution::k480p;
+        max_resolution = int(resolution);
     }
 
-    CGVideoDecoder(int codec_type, int resolution_type, const char *device_name = nullptr,
-                   int extra_hw_frames = 0);
     virtual ~CGVideoDecoder();
 
     /**
@@ -157,12 +150,16 @@ private:
     CGDecContex m_decode_ctx;        ///<! cg decoder internal context
     CGHWAccelContex m_hw_accel_ctx;  ///<! hw decoding accelerator context
     int decode_one_frame(const AVPacket *pkt);
-    bool init_failed_ = false;
+    bool decoder_ready = false;
+    std::recursive_mutex pull_lock;  // Guard m_decode_ctx at get_decoded_frame
+    std::recursive_mutex push_lock;  // Guard m_decode_ctx at decode/decode_one_frame
 
     CGVideoDecoder(const CGVideoDecoder &cg_video_decoder);
     CGVideoDecoder &operator=(const CGVideoDecoder &) { return *this; }
     uint32_t codec_type;
-    uint32_t resolution;
+    uint32_t max_resolution;
+    android::socket::FrameResolution resolution;
+    const char *device_name;
 };
 
 #endif  // CG_CODEC_H

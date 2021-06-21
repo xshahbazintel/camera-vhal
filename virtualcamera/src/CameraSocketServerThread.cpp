@@ -363,7 +363,7 @@ bool CameraSocketServerThread::threadLoop() {
 
         while (true) {
             // check if there are any events on fd.
-            int ret = poll(&fd, 1, 3000);  // 1 second for timeout
+            int ret = poll(&fd, 1, 3000);  // 3 seconds for timeout
 
             event = fd.revents;  // returned events
 
@@ -433,17 +433,17 @@ bool CameraSocketServerThread::threadLoop() {
                                     handle->clientRevCount++;
                                     ALOGVV("%s: Received Payload #%d %zd/%u bytes", __func__,
                                            handle->clientRevCount, size, header.size);
+                                    mSocketBuffer.fill(0);
                                     break;
                                 case CameraSessionState::kCameraClosed:
                                     ALOGI("%s: Decoding stopping and flushing decoder.", __func__);
-                                    mVideoDecoder->flush_decoder();
-                                    mVideoDecoder->destroy();
                                     mCameraSessionState = CameraSessionState::kDecodingStopped;
                                     ALOGI("%s: Decoding stopped now.", __func__);
                                     break;
                                 case CameraSessionState::kDecodingStopped:
                                     ALOGVV("%s: Decoding is already stopped, skip the packets",
                                            __func__);
+                                    mSocketBuffer.fill(0);
                                     break;
                                 default:
                                     ALOGE("%s: Invalid Camera session state!", __func__);
