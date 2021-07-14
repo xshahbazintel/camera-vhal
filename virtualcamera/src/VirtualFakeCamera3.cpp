@@ -545,10 +545,11 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
 #ifndef USE_GRALLOC1
             if (newStream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
 #endif
-                if (newStream->usage & GRALLOC_USAGE_HW_TEXTURE) {
+                if ((newStream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+                    (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
+                    // Both preview and video capture output format would
+                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
                     newStream->format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else if (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
-                    newStream->format = HAL_PIXEL_FORMAT_YCbCr_420_888;
                 } else {
                     newStream->format = HAL_PIXEL_FORMAT_RGB_888;
                 }
@@ -1076,10 +1077,11 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
 #ifndef USE_GRALLOC1
             if (srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
 #endif
-                if (srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) {
+                if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+                    (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
+                    // Both preview and video capture output format would
+		    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
                     destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else if (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
-                    destBuf.format = HAL_PIXEL_FORMAT_YCbCr_420_888;
                 } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
                            GRALLOC_USAGE_HW_CAMERA_ZSL) {
                     destBuf.format = HAL_PIXEL_FORMAT_RGB_888;
