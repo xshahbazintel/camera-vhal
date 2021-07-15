@@ -50,13 +50,13 @@ NV21JpegCompressor::NV21JpegCompressor() {
         mDl = dlopen(dlName, RTLD_NOW);
     }
     if (mDl) {
-       InitFunc f = (InitFunc)getSymbol(mDl, "JpegStub_init");
-       if (f)
-           (*f)(&mStub);
-       else
-           ALOGE("%s: Fatal error: getSymbol(JpegStub_init) failed", __func__);
+        InitFunc f = (InitFunc)getSymbol(mDl, "JpegStub_init");
+        if (f)
+            (*f)(&mStub);
+        else
+            ALOGE("%s: Fatal error: getSymbol(JpegStub_init) failed", __func__);
     } else {
-       ALOGE("%s: Fatal error: dlopen(%s) failed", __func__, dlName);
+        ALOGE("%s: Fatal error: dlopen(%s) failed", __func__, dlName);
     }
 }
 

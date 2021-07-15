@@ -177,7 +177,7 @@ int VirtualCameraFactory::cameraDeviceOpen(int cameraId, hw_device_t **device) {
         return -EINVAL;
     }
 
-    if (cameraId < 0 || cameraId >=getVirtualCameraNum()) {
+    if (cameraId < 0 || cameraId >= getVirtualCameraNum()) {
         ALOGE("%s: Camera id %d is out of bounds (%d)", __FUNCTION__, cameraId,
               getVirtualCameraNum());
         return -ENODEV;
@@ -267,8 +267,8 @@ int VirtualCameraFactory::open_legacy(const struct hw_module_t *module, const ch
  *******************************************************************************/
 
 void VirtualCameraFactory::createFakeCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                                            std::shared_ptr<CGVideoDecoder>           decoder,
-                                            bool                                      backCamera) {
+                                            std::shared_ptr<CGVideoDecoder> decoder,
+                                            bool backCamera) {
     int halVersion = getCameraHalVersion(backCamera);
 
     /*
@@ -297,8 +297,8 @@ void VirtualCameraFactory::createFakeCamera(std::shared_ptr<CameraSocketServerTh
               halVersion);
         status_t res = mVirtualCameras[mVirtualCameraNum]->Initialize(nullptr, nullptr, nullptr);
         if (res == NO_ERROR) {
-            ALOGI("%s: Initialization for %s Camera ID: %d completed sucessfully..",
-                  __FUNCTION__, backCamera ? "Back" : "Front", mVirtualCameraNum);
+            ALOGI("%s: Initialization for %s Camera ID: %d completed sucessfully..", __FUNCTION__,
+                  backCamera ? "Back" : "Front", mVirtualCameraNum);
             // Camera creation and initialization was successful.
             mVirtualCameraNum++;
         } else {
@@ -318,7 +318,7 @@ void VirtualCameraFactory::waitForRemoteSfFakeCameraPropertyAvailable() {
      * android/camera/camera-service.c
      * bug: 30768229
      */
-    int  numAttempts = 100;
+    int numAttempts = 100;
     char prop[PROPERTY_VALUE_MAX];
     bool timeout = true;
     for (int i = 0; i < numAttempts; ++i) {
@@ -356,11 +356,11 @@ int VirtualCameraFactory::getCameraHalVersion(bool backCamera) {
      * 'remote.sf.back_camera_hal_version' boot properties. If the property
      * doesn't exist, it is assumed we are working with HAL v1.
      */
-    char        prop[PROPERTY_VALUE_MAX];
+    char prop[PROPERTY_VALUE_MAX];
     const char *propQuery = backCamera ? "remote.sf.back_camera_hal" : "remote.sf.front_camera_hal";
     if (property_get(propQuery, prop, nullptr) > 0) {
         char *propEnd = prop;
-        int   val     = strtol(prop, &propEnd, 10);
+        int val = strtol(prop, &propEnd, 10);
         if (*propEnd == '\0') {
             return val;
         }

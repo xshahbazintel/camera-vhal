@@ -3,7 +3,7 @@
 
 #include <mutex>
 
-#define BPP_NV12 1.5 // 12 bpp
+#define BPP_NV12 1.5  // 12 bpp
 
 namespace android {
 
@@ -82,8 +82,8 @@ public:
 
     ClientVideoBuffer() {
         for (int i = 0; i < 1; i++) {
-            clientBuf[i].buffer =
-                new uint8_t[clientBuf[i].resolution.width * clientBuf[i].resolution.height * BPP_NV12];
+            clientBuf[i].buffer = new uint8_t[clientBuf[i].resolution.width *
+                                              clientBuf[i].resolution.height * BPP_NV12];
         }
         clientRevCount = 0;
         clientUsedCount = 0;

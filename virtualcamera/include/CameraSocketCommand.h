@@ -52,18 +52,18 @@ typedef struct _camera_config {
 } camera_config_t;
 
 typedef enum _ack_value {
-    NACK_CONFIG =0,
+    NACK_CONFIG = 0,
     ACK_CONFIG = 1,
 } camera_ack_t;
 
 typedef enum _camera_cmd {
-    CMD_OPEN  = 11,
+    CMD_OPEN = 11,
     CMD_CLOSE = 12,
 } camera_cmd_t;
 
 typedef enum _camera_version {
-    CAMERA_VHAL_VERSION_1 = 0, // decode out of camera vhal
-    CAMERA_VHAL_VERSION_2 = 1, // decode in camera vhal
+    CAMERA_VHAL_VERSION_1 = 0,  // decode out of camera vhal
+    CAMERA_VHAL_VERSION_2 = 1,  // decode in camera vhal
 } camera_version_t;
 
 typedef struct _camera_config_cmd {
@@ -73,8 +73,8 @@ typedef struct _camera_config_cmd {
 } camera_config_cmd_t;
 
 typedef struct _camera_capability {
-    uint32_t codec_type; // All supported codec_type
-    uint32_t resolution; // All supported resolution
+    uint32_t codec_type;  // All supported codec_type
+    uint32_t resolution;  // All supported resolution
     uint32_t reserved[6];
 } camera_capability_t;
 

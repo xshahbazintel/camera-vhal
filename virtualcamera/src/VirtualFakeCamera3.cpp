@@ -47,7 +47,7 @@
 #define ALOGVV(...) ((void)0)
 #endif
 
-#define MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION 12 //12ms
+#define MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION 12  // 12ms
 
 using namespace std;
 using namespace chrono;
@@ -203,7 +203,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd.config.codec_type = mDecoder->getCodecType();
     config_cmd.config.resolution = mDecoderResolution;
 
-    camera_packet_t* config_cmd_packet = NULL;
+    camera_packet_t *config_cmd_packet = NULL;
 
     int client_fd = mSocketServer->getClientFd();
     if (client_fd < 0) {
@@ -211,7 +211,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
         return status;
     }
 
-    config_cmd_packet = (camera_packet_t*) malloc(config_cmd_packet_size);
+    config_cmd_packet = (camera_packet_t *)malloc(config_cmd_packet_size);
     if (config_cmd_packet == NULL) {
         ALOGE(LOG_TAG "%s: config camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
         goto out;
@@ -224,13 +224,12 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
     if (send(client_fd, config_cmd_packet, config_cmd_packet_size, 0) < 0) {
         ALOGE(LOG_TAG "%s: Failed to send Camera %s command to client, err %s ", __FUNCTION__,
-                       (cmd == camera_cmd_t::CMD_CLOSE ) ? "CloseCamera" : "OpenCamera",
-                       strerror(errno));
+              (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", strerror(errno));
         goto out;
     }
 
     ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__,
-             (cmd == camera_cmd_t::CMD_CLOSE ) ? "CloseCamera" : "OpenCamera", client_fd);
+          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", client_fd);
     status = OK;
 out:
     free(config_cmd_packet);
@@ -245,7 +244,8 @@ status_t VirtualFakeCamera3::connectCamera() {
 
         mDecoderResolution = setDecoderResolution(mSrcHeight);
         // initialize decoder
-        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, device_name, 0) < 0) {
+        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, device_name, 0) <
+            0) {
             ALOGE("%s VideoDecoder init failed. %s decoding", __func__,
                   !device_name ? "SW" : device_name);
         } else {
@@ -293,7 +293,6 @@ status_t VirtualFakeCamera3::connectCamera() {
     mAeCurrentSensitivity = kNormalSensitivity;
 
     return OK;
-
 }
 
 /**
@@ -330,7 +329,7 @@ status_t VirtualFakeCamera3::closeCamera() {
 
         auto ret = mSensor->shutDown();
         if (ret != NO_ERROR) {
-	    ALOGE("%s: Unable to shut down sensor: %d", __FUNCTION__, ret);
+            ALOGE("%s: Unable to shut down sensor: %d", __FUNCTION__, ret);
         }
         mSensor.clear();
 
@@ -343,9 +342,9 @@ status_t VirtualFakeCamera3::closeCamera() {
         Mutex::Autolock l(mLock);
         // Clear out private stream information
         for (StreamIterator s = mStreams.begin(); s != mStreams.end(); s++) {
-	     PrivateStreamInfo *privStream = static_cast<PrivateStreamInfo *>((*s)->priv);
-	     delete privStream;
-	     (*s)->priv = NULL;
+            PrivateStreamInfo *privStream = static_cast<PrivateStreamInfo *>((*s)->priv);
+            delete privStream;
+            (*s)->priv = NULL;
         }
         mStreams.clear();
         mReadoutThread.clear();
@@ -361,10 +360,9 @@ status_t VirtualFakeCamera3::closeCamera() {
     if (gIsInFrameH264) {
         int waitForCameraClose = 0;
         while (mCameraSessionState != socket::CameraSessionState::kDecodingStopped) {
-	    std::this_thread::sleep_for(2ms);
-	    waitForCameraClose += 2; // 2 corresponds to 2ms
-	if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION)
-	    break;
+            std::this_thread::sleep_for(2ms);
+            waitForCameraClose += 2;  // 2 corresponds to 2ms
+            if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION) break;
         }
         ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
     }
@@ -492,7 +490,6 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
     mInputStream = inputStream;
 
     ALOGI("%s: Camera current input resolution is %dx%d", __FUNCTION__, mSrcWidth, mSrcHeight);
-
 
     /**
      * Initially mark all existing streams as not alive
@@ -1080,7 +1077,7 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
                 if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
                     (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
                     // Both preview and video capture output format would
-		    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
+                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
                     destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
                 } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
                            GRALLOC_USAGE_HW_CAMERA_ZSL) {
@@ -1313,8 +1310,8 @@ void VirtualFakeCamera3::setMaxSupportedResolution(int32_t width, int32_t height
     // This would be used in sensor related operations and metadata info.
     mSensorWidth = width;
     mSensorHeight = height;
-    ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d",
-           __func__, mCameraID, mSensorWidth, mSensorHeight);
+    ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d", __func__, mCameraID, mSensorWidth,
+          mSensorHeight);
 }
 
 status_t VirtualFakeCamera3::constructStaticInfo() {
@@ -1333,8 +1330,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         std::this_thread::sleep_for(1ms);
     }
 
-    ALOGVV("%s: Received capability info from Client Device for Camera %d",
-            __func__, mCameraID);
+    ALOGVV("%s: Received capability info from Client Device for Camera %d", __func__, mCameraID);
     // Updating width and height based on capability info.
     width = srcCameraWidth;
     height = srcCameraHeight;
@@ -1628,7 +1624,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                                  availableStreamConfigurations480p.begin(),
                                                  availableStreamConfigurations480p.end());
-        } else { // For 480p
+        } else {  // For 480p
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                                  availableStreamConfigurationsDefault.begin(),
                                                  availableStreamConfigurationsDefault.end());
@@ -1636,7 +1632,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                                  availableStreamConfigurations480p.begin(),
                                                  availableStreamConfigurations480p.end());
-	}
+        }
     }
     if (hasCapability(RAW)) {
         availableStreamConfigurations.insert(availableStreamConfigurations.end(),
@@ -1748,7 +1744,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                                               availableMinFrameDurations480p.begin(),
                                               availableMinFrameDurations480p.end());
         } else if (width == 1280 && height == 720) {
-
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
                                               availableMinFrameDurationsDefault.begin(),
                                               availableMinFrameDurationsDefault.end());
@@ -1760,7 +1755,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
                                               availableMinFrameDurations480p.begin(),
                                               availableMinFrameDurations480p.end());
-        } else { // For 480p
+        } else {  // For 480p
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
                                               availableMinFrameDurationsDefault.begin(),
                                               availableMinFrameDurationsDefault.end());
@@ -1768,7 +1763,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
                                               availableMinFrameDurations480p.begin(),
                                               availableMinFrameDurations480p.end());
-	}
+        }
     }
     if (hasCapability(RAW)) {
         availableMinFrameDurations.insert(availableMinFrameDurations.end(),
@@ -1860,7 +1855,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableStallDurations.insert(availableStallDurations.end(),
                                            availableStallDurations480p.begin(),
                                            availableStallDurations480p.end());
-        } else { // For 480p
+        } else {  // For 480p
             availableStallDurations.insert(availableStallDurations.end(),
                                            availableStallDurationsDefault.begin(),
                                            availableStallDurationsDefault.end());
@@ -1868,7 +1863,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             availableStallDurations.insert(availableStallDurations.end(),
                                            availableStallDurations480p.begin(),
                                            availableStallDurations480p.end());
-	}
+        }
     }
     if (hasCapability(RAW)) {
         availableStallDurations.insert(availableStallDurations.end(),

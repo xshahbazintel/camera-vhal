@@ -256,9 +256,8 @@ private:
 
     static const size_t maxSupportedResWidth = 1920;
     static const size_t maxSupportedResHeight = 1080;
-    static const size_t bpp = 2; // 12 bpp for NV12/NV21 and 4 bits extra for FHD operations.
+    static const size_t bpp = 2;  // 12 bpp for NV12/NV21 and 4 bits extra for FHD operations.
     static const size_t buffSize = maxSupportedResWidth * maxSupportedResHeight * bpp;
-
 
     // Allocate memories for resolution scaling operation in preview.
     std::array<uint8_t, buffSize> mDstTempPrevBuf = {};

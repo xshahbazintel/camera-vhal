@@ -52,7 +52,7 @@ const char* codec_type_to_str(uint32_t type) {
     switch (type) {
         case int(android::socket::VideoCodecType::kH264):
             return "H264";
-	case int(android::socket::VideoCodecType::kH265):
+        case int(android::socket::VideoCodecType::kH265):
             return "H265";
         default:
             return "invalid";
@@ -71,5 +71,5 @@ const char* resolution_to_str(uint32_t resolution) {
             return "invalid";
     }
 }
-}
+}  // namespace socket
 }  // namespace android

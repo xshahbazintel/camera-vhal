@@ -98,7 +98,6 @@ protected:
     virtual void dump(int fd);
 
 private:
-
     /** Initialize the Sensor and Decoder part of the Camera*/
     status_t connectCamera();
 

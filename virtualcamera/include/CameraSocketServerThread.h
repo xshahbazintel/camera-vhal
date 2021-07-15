@@ -37,7 +37,7 @@ class VirtualCameraFactory;
 class CameraSocketServerThread : public Thread {
 public:
     CameraSocketServerThread(std::string suffix, std::shared_ptr<CGVideoDecoder> decoder,
-            std::atomic<socket::CameraSessionState> &state);
+                             std::atomic<socket::CameraSessionState> &state);
     ~CameraSocketServerThread();
 
     virtual void requestExit();

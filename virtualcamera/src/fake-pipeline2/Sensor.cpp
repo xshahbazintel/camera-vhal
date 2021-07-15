@@ -362,8 +362,7 @@ bool Sensor::threadLoop() {
                         bAux.streamId = 0;
                         bAux.width = b.width;
                         bAux.height = b.height;
-                        bAux.format =
-                            HAL_PIXEL_FORMAT_YCbCr_420_888;
+                        bAux.format = HAL_PIXEL_FORMAT_YCbCr_420_888;
                         bAux.stride = b.width;
                         bAux.buffer = nullptr;
                         bAux.img = new uint8_t[b.width * b.height * 3];
@@ -415,7 +414,7 @@ bool Sensor::threadLoop() {
 
     ALOGVV("Sensor Thread stage X :4");
     ALOGVV("Frame No: %d took %d ms, target %d ms", frameNumber,
-          (int)(workDoneRealTime - startRealTime) / 1000000, (int)(frameDuration / 1000000));
+           (int)(workDoneRealTime - startRealTime) / 1000000, (int)(frameDuration / 1000000));
     return true;
 };
 
@@ -500,7 +499,7 @@ bool Sensor::getNV12Frames(uint8_t *input_buf, int *camera_input_size,
             break;
         } else if (retry_count++ <= maxRetryCount) {  // decoded frames are not ready
             ALOGVV("%s retry #%zu get_decoded_frame() not ready, lets wait for %zums", __func__,
-                  retry_count, size_t(timeout_ms.count()));
+                   retry_count, size_t(timeout_ms.count()));
             std::this_thread::sleep_for(timeout_ms);
             continue;
         } else if (retry_count > maxRetryCount) {
@@ -539,14 +538,14 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
             // Note: bufData already assigned in the function start
             ALOGVV("%s - Already Decoded Camera Input Frame..", __FUNCTION__);
-        } else { // This is the default condition in all apps.
-	    // To get the decoded frame.
+        } else {  // This is the default condition in all apps.
+                  // To get the decoded frame.
             getNV12Frames(bufData, &cameraInputDataSize);
             handle->clientBuf[handle->clientRevCount % 1].decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             handle->decodedFrameNo++;
-            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
-                    __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
+                   handle->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
@@ -586,7 +585,7 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                                              dst_stride_abgr, width, height)) {
             }
         }
-    // For upscaling and downscaling all other resolutions below max supported resolution.
+        // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
         if (gIsInFrameI420) {
             ALOGVV(LOG_TAG " %s: I420, need to scale: Size = %dx%d", __FUNCTION__, width, height);
@@ -763,8 +762,8 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
     int cameraInputDataSize;
 
-    ALOGVV(LOG_TAG " %s: bufData[%p] img[%p] resolution[%d:%d]",
-           __func__, bufData, img, width, height);
+    ALOGVV(LOG_TAG " %s: bufData[%p] img[%p] resolution[%d:%d]", __func__, bufData, img, width,
+           height);
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
         ALOGE("%s Exit - only H264, I420 input frames supported", __FUNCTION__);
@@ -780,13 +779,13 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             // This is the default condition in most of the apps.
             ALOGVV("%s - Already Decoded Camera Input frame..", __FUNCTION__);
         } else {
-	    // To get the decoded frame for the apps which doesn't have RGBA preview.
+            // To get the decoded frame for the apps which doesn't have RGBA preview.
             getNV12Frames(bufData, &cameraInputDataSize);
             handle->clientBuf[handle->clientRevCount % 1].decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             handle->decodedFrameNo++;
-            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
-                    __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
+                   handle->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
@@ -829,7 +828,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                    __FUNCTION__, width, height);
             memcpy(img, bufData, cameraInputDataSize);
         }
-    // For upscaling and downscaling all other resolutions below max supported resolution.
+        // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
         if (gIsInFrameI420) {
             // For I420 input support
@@ -888,7 +887,8 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         } else {
             // For NV12 Input support
-            ALOGVV(LOG_TAG " %s: NV12 frame with scaling to Size = %dx%d", __FUNCTION__, width, height);
+            ALOGVV(LOG_TAG " %s: NV12 frame with scaling to Size = %dx%d", __FUNCTION__, width,
+                   height);
 
             const uint8_t *src_y = bufData;
             int src_stride_y = mSrcWidth;
@@ -969,8 +969,8 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     int cameraInputDataSize;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
-	ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
-	return;
+        ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
+        return;
     }
 
     // Initialize the input data size based on client camera resolution.
@@ -980,192 +980,194 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
             // If already decoded camera input frame.
             ALOGVV("%s - Already Decoded Camera Input frame", __FUNCTION__);
-    } else {
+        } else {
             // To get the decoded frame.
             getNV12Frames(bufData, &cameraInputDataSize);
             handle->clientBuf[handle->clientRevCount % 1].decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             handle->decodedFrameNo++;
-            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d",
-                   __FUNCTION__, handle->decodedFrameNo, cameraInputDataSize);
+            ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
+                   handle->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
     // For Max supported Resolution.
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
-	//For I420 input
+        // For I420 input
         if (gIsInFrameI420) {
-            ALOGVV(LOG_TAG "%s: I420 input without scaling required Size = %dx%d for JPEG conversion",
-			    __FUNCTION__, width, height);
+            ALOGVV(LOG_TAG
+                   "%s: I420 input without scaling required Size = %dx%d for JPEG conversion",
+                   __FUNCTION__, width, height);
 
-	    const uint8_t *src_y = bufData;
-	    int src_stride_y = mSrcWidth;
-	    const uint8_t *src_u = bufData + src_size;
-	    int src_stride_u = mSrcWidth >> 1;
-	    const uint8_t *src_v = bufData + src_size + src_size / 4;
-	    int src_stride_v = mSrcWidth >> 1;
+            const uint8_t *src_y = bufData;
+            int src_stride_y = mSrcWidth;
+            const uint8_t *src_u = bufData + src_size;
+            int src_stride_u = mSrcWidth >> 1;
+            const uint8_t *src_v = bufData + src_size + src_size / 4;
+            int src_stride_v = mSrcWidth >> 1;
 
-	    uint8_t *dst_y = img;
-	    int dst_stride_y = width;
-	    uint8_t *dst_vu = dst_y + src_size;
-	    int dst_stride_vu = width;
+            uint8_t *dst_y = img;
+            int dst_stride_y = width;
+            uint8_t *dst_vu = dst_y + src_size;
+            int dst_stride_vu = width;
 
-	    if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
-				             src_stride_v, dst_y, dst_stride_y, dst_vu,
-					     dst_stride_vu, width, height)) {
-	    }
-        //For NV12 input
-	} else {
-	    ALOGVV(LOG_TAG "%s: NV12 to NV21 conversion for JPEG conversion: Size = %dx%d",
-			   __FUNCTION__, width, height);
-
-	    const uint8_t *src_y = bufData;
-	    int src_stride_y = mSrcWidth;
-	    const uint8_t *src_uv = bufData + src_size;
-	    int src_stride_uv = mSrcWidth;
-
-	    uint8_t *dst_y = mDstJpegBuf.data();
-	    int dst_stride_y = mSrcWidth;
-	    uint8_t *dst_u = mDstJpegBuf.data() + src_size;
-	    int dst_stride_u = mSrcWidth >> 1;
-	    uint8_t *dst_v = mDstJpegBuf.data() + src_size + src_size / 4;
-	    int dst_stride_v = mSrcWidth >> 1;
-
-	    if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv,
-				             dst_y,dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
-					     mSrcWidth, mSrcHeight)) {
-	    }
-
-	    src_y =mDstJpegBuf.data();
-	    src_stride_y = mSrcWidth;
-	    uint8_t *src_u = mDstJpegBuf.data() + src_size;
-	    int src_stride_u = src_stride_y >> 1;
-	    const uint8_t *src_v = mDstJpegBuf.data() + src_size + src_size / 4;
-	    int src_stride_v = src_stride_y >> 1;
-
-	    dst_y = img;
-	    dst_stride_y = width;
-	    uint8_t *dst_vu = dst_y + dstFrameSize;
-	    int dst_stride_vu = width;
-
-	    if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
-				             src_stride_v, dst_y, dst_stride_y, dst_vu,
-					     dst_stride_vu, width, height)) {
-	    }
-        }
-    // For upscaling and downscaling all other resolutions below max supported resolution.
-    } else {
-	//For I420 input
-        if (gIsInFrameI420) {
-	    ALOGVV(LOG_TAG "%s: I420 with scaling: Size = %dx%d for JPEG conversion",
-			    __FUNCTION__, width, height);
-
-	    const uint8_t *src_y = bufData;
-	    int src_stride_y = mSrcWidth;
-	    const uint8_t *src_u = bufData + src_size;
-	    int src_stride_u = src_stride_y >> 1;
-	    const uint8_t *src_v = bufData + src_size + src_size / 4;
-	    int src_stride_v = src_stride_y >> 1;
-	    int src_width = mSrcWidth;
-	    int src_height = mSrcHeight;
-
-	    uint8_t *dst_y = mDstJpegBuf.data();
-	    int dst_stride_y = width;
-	    uint8_t *dst_u = mDstJpegBuf.data() + dstFrameSize;
-	    int dst_stride_u = width >> 1;
-	    uint8_t *dst_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
-	    int dst_stride_v = width >> 1;
-	    int dst_width = width;
-	    int dst_height = height;
-	    auto filtering = libyuv::kFilterNone;
-
-	    if (int ret = libyuv::I420Scale(src_y, src_stride_y, src_u, src_stride_u, src_v,
-				            src_stride_v, src_width, src_height, dst_y,
-					    dst_stride_y, dst_u, dst_stride_u, dst_v,
-					    dst_stride_v,dst_width, dst_height, filtering)) {
-	    }
-
-	    ALOGVV("%s: I420 Scaling done for JPEG conversion", __FUNCTION__);
-
-	    src_y = mDstJpegBuf.data();
-	    src_stride_y = width;
-	    src_u = mDstJpegBuf.data() + dstFrameSize;
-	    src_stride_u = width >> 1;
-	    src_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
-	    src_stride_v = width >> 1;
-	    dst_y = img;
-	    dst_stride_y = width;
-
-	    uint8_t *dst_vu = dst_y + width * height;
-	    int dst_stride_vu = width;
-
-	    if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
-				             src_stride_v, dst_y, dst_stride_y,
-					     dst_vu, dst_stride_vu, width, height)) {
+            if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                             src_stride_v, dst_y, dst_stride_y, dst_vu,
+                                             dst_stride_vu, width, height)) {
             }
-	//For NV12 input
-	} else {
-	    ALOGVV(LOG_TAG "%s: NV12 input with scaling Size = %dx%d for JPEG conversion", __FUNCTION__, width, height);
+            // For NV12 input
+        } else {
+            ALOGVV(LOG_TAG "%s: NV12 to NV21 conversion for JPEG conversion: Size = %dx%d",
+                   __FUNCTION__, width, height);
 
-	    const uint8_t *src_y = bufData;
-	    int src_stride_y = mSrcWidth;
-	    const uint8_t *src_uv = bufData + src_size;
-	    int src_stride_uv = mSrcWidth;
+            const uint8_t *src_y = bufData;
+            int src_stride_y = mSrcWidth;
+            const uint8_t *src_uv = bufData + src_size;
+            int src_stride_uv = mSrcWidth;
 
-	    uint8_t *dst_y = mDstJpegTempBuf.data();
-	    int dst_stride_y = mSrcWidth;
-	    uint8_t *dst_u = mDstJpegTempBuf.data() + src_size;
-	    int dst_stride_u = mSrcWidth >> 1;
-	    uint8_t *dst_v = mDstJpegTempBuf.data() + src_size + src_size / 4;
-	    int dst_stride_v = mSrcWidth >> 1;
+            uint8_t *dst_y = mDstJpegBuf.data();
+            int dst_stride_y = mSrcWidth;
+            uint8_t *dst_u = mDstJpegBuf.data() + src_size;
+            int dst_stride_u = mSrcWidth >> 1;
+            uint8_t *dst_v = mDstJpegBuf.data() + src_size + src_size / 4;
+            int dst_stride_v = mSrcWidth >> 1;
 
-	    if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv, dst_y,
-					     dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
-				             mSrcWidth, mSrcHeight)) {
-	    }
+            if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv, dst_y,
+                                             dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
+                                             mSrcWidth, mSrcHeight)) {
+            }
 
-	    src_y = mDstJpegTempBuf.data();
-	    src_stride_y = mSrcWidth;
-	    uint8_t *src_u = mDstJpegTempBuf.data() + src_size;
-	    int src_stride_u = src_stride_y >> 1;
-	    const uint8_t *src_v = mDstJpegTempBuf.data() + src_size + src_size / 4;
-	    int src_stride_v = src_stride_y >> 1;
-	    int src_width = mSrcWidth;
-	    int src_height = mSrcHeight;
+            src_y = mDstJpegBuf.data();
+            src_stride_y = mSrcWidth;
+            uint8_t *src_u = mDstJpegBuf.data() + src_size;
+            int src_stride_u = src_stride_y >> 1;
+            const uint8_t *src_v = mDstJpegBuf.data() + src_size + src_size / 4;
+            int src_stride_v = src_stride_y >> 1;
 
-	    dst_y = mDstJpegBuf.data();
-	    dst_stride_y = width;
-	    dst_u = mDstJpegBuf.data() + dstFrameSize;
-	    dst_stride_u = width >> 1;
-	    dst_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
-	    dst_stride_v = width >> 1;
-	    int dst_width = width;
-	    int dst_height = height;
-	    auto filtering = libyuv::kFilterNone;
+            dst_y = img;
+            dst_stride_y = width;
+            uint8_t *dst_vu = dst_y + dstFrameSize;
+            int dst_stride_vu = width;
 
-	    if (int ret = libyuv::I420Scale(src_y, src_stride_y, src_u, src_stride_u, src_v,
-					    src_stride_v, src_width, src_height, dst_y,
-					    dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
-					    dst_width, dst_height, filtering)) {
-	    }
+            if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                             src_stride_v, dst_y, dst_stride_y, dst_vu,
+                                             dst_stride_vu, width, height)) {
+            }
+        }
+        // For upscaling and downscaling all other resolutions below max supported resolution.
+    } else {
+        // For I420 input
+        if (gIsInFrameI420) {
+            ALOGVV(LOG_TAG "%s: I420 with scaling: Size = %dx%d for JPEG conversion", __FUNCTION__,
+                   width, height);
 
-	    src_y = mDstJpegBuf.data();
-	    src_stride_y = width;
-	    src_u = mDstJpegBuf.data() + dstFrameSize;
-	    src_stride_u = width >> 1;
-	    src_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
-	    src_stride_v = width >> 1;
+            const uint8_t *src_y = bufData;
+            int src_stride_y = mSrcWidth;
+            const uint8_t *src_u = bufData + src_size;
+            int src_stride_u = src_stride_y >> 1;
+            const uint8_t *src_v = bufData + src_size + src_size / 4;
+            int src_stride_v = src_stride_y >> 1;
+            int src_width = mSrcWidth;
+            int src_height = mSrcHeight;
 
-	    dst_y = img;
-	    dst_stride_y = width;
-	    uint8_t *dst_vu = dst_y + dstFrameSize;
-	    int dst_stride_vu = width;
+            uint8_t *dst_y = mDstJpegBuf.data();
+            int dst_stride_y = width;
+            uint8_t *dst_u = mDstJpegBuf.data() + dstFrameSize;
+            int dst_stride_u = width >> 1;
+            uint8_t *dst_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
+            int dst_stride_v = width >> 1;
+            int dst_width = width;
+            int dst_height = height;
+            auto filtering = libyuv::kFilterNone;
 
-	    if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
-				             src_stride_v, dst_y, dst_stride_y, dst_vu,
-					     dst_stride_vu, width, height)) {
-	    }
-	}
+            if (int ret = libyuv::I420Scale(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                            src_stride_v, src_width, src_height, dst_y,
+                                            dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
+                                            dst_width, dst_height, filtering)) {
+            }
+
+            ALOGVV("%s: I420 Scaling done for JPEG conversion", __FUNCTION__);
+
+            src_y = mDstJpegBuf.data();
+            src_stride_y = width;
+            src_u = mDstJpegBuf.data() + dstFrameSize;
+            src_stride_u = width >> 1;
+            src_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
+            src_stride_v = width >> 1;
+            dst_y = img;
+            dst_stride_y = width;
+
+            uint8_t *dst_vu = dst_y + width * height;
+            int dst_stride_vu = width;
+
+            if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                             src_stride_v, dst_y, dst_stride_y, dst_vu,
+                                             dst_stride_vu, width, height)) {
+            }
+            // For NV12 input
+        } else {
+            ALOGVV(LOG_TAG "%s: NV12 input with scaling Size = %dx%d for JPEG conversion",
+                   __FUNCTION__, width, height);
+
+            const uint8_t *src_y = bufData;
+            int src_stride_y = mSrcWidth;
+            const uint8_t *src_uv = bufData + src_size;
+            int src_stride_uv = mSrcWidth;
+
+            uint8_t *dst_y = mDstJpegTempBuf.data();
+            int dst_stride_y = mSrcWidth;
+            uint8_t *dst_u = mDstJpegTempBuf.data() + src_size;
+            int dst_stride_u = mSrcWidth >> 1;
+            uint8_t *dst_v = mDstJpegTempBuf.data() + src_size + src_size / 4;
+            int dst_stride_v = mSrcWidth >> 1;
+
+            if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv, dst_y,
+                                             dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
+                                             mSrcWidth, mSrcHeight)) {
+            }
+
+            src_y = mDstJpegTempBuf.data();
+            src_stride_y = mSrcWidth;
+            uint8_t *src_u = mDstJpegTempBuf.data() + src_size;
+            int src_stride_u = src_stride_y >> 1;
+            const uint8_t *src_v = mDstJpegTempBuf.data() + src_size + src_size / 4;
+            int src_stride_v = src_stride_y >> 1;
+            int src_width = mSrcWidth;
+            int src_height = mSrcHeight;
+
+            dst_y = mDstJpegBuf.data();
+            dst_stride_y = width;
+            dst_u = mDstJpegBuf.data() + dstFrameSize;
+            dst_stride_u = width >> 1;
+            dst_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
+            dst_stride_v = width >> 1;
+            int dst_width = width;
+            int dst_height = height;
+            auto filtering = libyuv::kFilterNone;
+
+            if (int ret = libyuv::I420Scale(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                            src_stride_v, src_width, src_height, dst_y,
+                                            dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
+                                            dst_width, dst_height, filtering)) {
+            }
+
+            src_y = mDstJpegBuf.data();
+            src_stride_y = width;
+            src_u = mDstJpegBuf.data() + dstFrameSize;
+            src_stride_u = width >> 1;
+            src_v = mDstJpegBuf.data() + dstFrameSize + dstFrameSize / 4;
+            src_stride_v = width >> 1;
+
+            dst_y = img;
+            dst_stride_y = width;
+            uint8_t *dst_vu = dst_y + dstFrameSize;
+            int dst_stride_vu = width;
+
+            if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
+                                             src_stride_v, dst_y, dst_stride_y, dst_vu,
+                                             dst_stride_vu, width, height)) {
+            }
+        }
     }
     ALOGVV("%s: Successfully Converted to NV21 for JPEG Capture!!!", __FUNCTION__);
 }
