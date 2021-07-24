@@ -256,7 +256,6 @@ bool Sensor::threadLoop() {
     uint32_t gain;
     Buffers *nextBuffers;
     uint32_t frameNumber;
-    bool needJpeg = false;
     ALOGVV("Sensor Thread stage E :1");
     SensorListener *listener = nullptr;
     {
@@ -362,23 +361,20 @@ bool Sensor::threadLoop() {
                         bAux.streamId = 0;
                         bAux.width = b.width;
                         bAux.height = b.height;
-                        bAux.format = HAL_PIXEL_FORMAT_YCbCr_420_888;
+                        bAux.format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
                         bAux.stride = b.width;
                         bAux.buffer = nullptr;
                         bAux.img = new uint8_t[b.width * b.height * 3];
-                        needJpeg = true;
                         mNextCapturedBuffers->push_back(bAux);
                     } else {
                         captureDepthCloud(b.img);
                     }
                     break;
+                case HAL_PIXEL_FORMAT_YCrCb_420_SP:
+                    captureNV21(b.img, gain, b.width, b.height);
+                    break;
                 case HAL_PIXEL_FORMAT_YCbCr_420_888:
-                    if (!needJpeg) {
-                        captureNV12(b.img, gain, b.width, b.height);
-                    } else {
-                        needJpeg = false;
-                        captureJPEG(b.img, gain, b.width, b.height);
-                    }
+                    captureNV12(b.img, gain, b.width, b.height);
                     break;
                 case HAL_PIXEL_FORMAT_YV12:
                     // TODO:
@@ -690,7 +686,7 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         }
     }
 
-    ALOGVV(" %s: Done with converion into img[%p]", __FUNCTION__, img);
+    ALOGVV(" %s: Captured RGB32 image sucessfully..", __FUNCTION__);
 
 // Debug point
 #if 0
@@ -700,7 +696,6 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         DUMP_RGBA(j, img, 1228800);
     }
 #endif
-    ALOGVV(" %s: X", __FUNCTION__);
 }
 
 void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
@@ -954,10 +949,10 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         saveNV21(img, width * height * 3);
     }
 #endif
-    ALOGI(LOG_TAG " %s: Captured NV12 Image sucessfully!!! ", __FUNCTION__);
+    ALOGVV(LOG_TAG " %s: Captured NV12 image sucessfully..", __FUNCTION__);
 }
 
-void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
+void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
     ALOGVV("%s: E", __FUNCTION__);
 
     ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
@@ -995,8 +990,7 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
         // For I420 input
         if (gIsInFrameI420) {
-            ALOGVV(LOG_TAG
-                   "%s: I420 input without scaling required Size = %dx%d for JPEG conversion",
+            ALOGVV(LOG_TAG "%s: I420 to NV21 conversion without scaling: Size = %dx%d",
                    __FUNCTION__, width, height);
 
             const uint8_t *src_y = bufData;
@@ -1017,7 +1011,7 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
             // For NV12 input
         } else {
-            ALOGVV(LOG_TAG "%s: NV12 to NV21 conversion for JPEG conversion: Size = %dx%d",
+            ALOGVV(LOG_TAG "%s: NV12 to NV21 conversion without scaling: Size = %dx%d",
                    __FUNCTION__, width, height);
 
             const uint8_t *src_y = bufData;
@@ -1058,8 +1052,8 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     } else {
         // For I420 input
         if (gIsInFrameI420) {
-            ALOGVV(LOG_TAG "%s: I420 with scaling: Size = %dx%d for JPEG conversion", __FUNCTION__,
-                   width, height);
+            ALOGVV(LOG_TAG "%s: I420 to NV21 with scaling: Size = %dx%d", __FUNCTION__, width,
+                   height);
 
             const uint8_t *src_y = bufData;
             int src_stride_y = mSrcWidth;
@@ -1086,8 +1080,6 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                                             dst_width, dst_height, filtering)) {
             }
 
-            ALOGVV("%s: I420 Scaling done for JPEG conversion", __FUNCTION__);
-
             src_y = mDstJpegBuf.data();
             src_stride_y = width;
             src_u = mDstJpegBuf.data() + dstFrameSize;
@@ -1106,8 +1098,8 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
             // For NV12 input
         } else {
-            ALOGVV(LOG_TAG "%s: NV12 input with scaling Size = %dx%d for JPEG conversion",
-                   __FUNCTION__, width, height);
+            ALOGVV(LOG_TAG "%s: NV12 to NV21 conversion with scaling: Size = %dx%d", __FUNCTION__,
+                   width, height);
 
             const uint8_t *src_y = bufData;
             int src_stride_y = mSrcWidth;
@@ -1169,7 +1161,7 @@ void Sensor::captureJPEG(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         }
     }
-    ALOGVV("%s: Successfully Converted to NV21 for JPEG Capture!!!", __FUNCTION__);
+    ALOGVV("%s: Captured NV21 image sucessfully..", __FUNCTION__);
 }
 
 void Sensor::captureDepth(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {

@@ -149,7 +149,7 @@ private:
     // sensor-generated buffers which use a nonpositive ID. Otherwise, HAL3 has
     // no concept of a stream id.
     static const uint32_t kGenericStreamId = 1;
-    static const int32_t kAvailableFormats[];
+    static const int32_t kHalSupportedFormats[];
     static const int64_t kSyncWaitTimeout = 10000000;   // 10 ms
     static const int32_t kMaxSyncTimeoutCount = 1000;   // 1000 kSyncWaitTimeouts
     static const uint32_t kFenceTimeoutMs = 2000;       // 2 s

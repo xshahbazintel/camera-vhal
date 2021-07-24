@@ -64,13 +64,14 @@ using namespace socket;
 const int64_t USEC = 1000LL;
 const int64_t MSEC = USEC * 1000LL;
 
-const int32_t VirtualFakeCamera3::kAvailableFormats[] = {
-    HAL_PIXEL_FORMAT_RAW16, HAL_PIXEL_FORMAT_BLOB, HAL_PIXEL_FORMAT_RGBA_8888,
-    HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-    // These are handled by YCbCr_420_888
-    //        HAL_PIXEL_FORMAT_YV12,
-    //        HAL_PIXEL_FORMAT_YCrCb_420_SP,
-    HAL_PIXEL_FORMAT_YCbCr_420_888, HAL_PIXEL_FORMAT_Y16};
+const int32_t VirtualFakeCamera3::kHalSupportedFormats[] = {
+    HAL_PIXEL_FORMAT_BLOB,
+    HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,  // defined as RGB32
+    HAL_PIXEL_FORMAT_RGBA_8888,               // RGB32
+    HAL_PIXEL_FORMAT_YCbCr_420_888,           // NV12
+    HAL_PIXEL_FORMAT_YCrCb_420_SP,            // NV21
+    // HAL_PIXEL_FORMAT_YV12 /* Not supporting now*/
+};
 
 /**
  * 3A constants
@@ -459,8 +460,9 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
         }
 
         bool validFormat = false;
-        for (size_t f = 0; f < sizeof(kAvailableFormats) / sizeof(kAvailableFormats[0]); f++) {
-            if (newStream->format == kAvailableFormats[f]) {
+        for (size_t f = 0; f < sizeof(kHalSupportedFormats) / sizeof(kHalSupportedFormats[0]);
+             f++) {
+            if (newStream->format == kHalSupportedFormats[f]) {
                 validFormat = true;
                 break;
             }
@@ -922,6 +924,7 @@ const camera_metadata_t *VirtualFakeCamera3::constructDefaultRequestSettings(int
 }
 
 status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *request) {
+    ALOGVV("%s: E", __FUNCTION__);
     Mutex::Autolock l(mLock);
     status_t res;
     mprocessCaptureRequestFlag = true;
@@ -936,6 +939,9 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         ALOGE("%s: NULL request!", __FUNCTION__);
         return BAD_VALUE;
     }
+
+    ALOGVV("%s: Number of requested buffers = %u, Frame no: %u", __FUNCTION__,
+           request->num_output_buffers, request->frame_number);
 
     uint32_t frameNumber = request->frame_number;
 
@@ -1055,13 +1061,19 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
     for (size_t i = 0; i < request->num_output_buffers; i++) {
         const camera3_stream_buffer &srcBuf = request->output_buffers[i];
         StreamBuffer destBuf;
+
         destBuf.streamId = kGenericStreamId;
         destBuf.width = srcBuf.stream->width;
         destBuf.height = srcBuf.stream->height;
+        destBuf.stride = srcBuf.stream->width;
+        destBuf.dataSpace = srcBuf.stream->data_space;
+        destBuf.buffer = srcBuf.buffer;
+        // Set this first to get rid of klocwork warnings.
+        // It would be overwritten again if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED
         destBuf.format = (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
                              ? HAL_PIXEL_FORMAT_RGBA_8888
                              : srcBuf.stream->format;
-        // inline with goldfish gralloc
+
         if (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
 #ifndef USE_GRALLOC1
             if (srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
@@ -1073,15 +1085,13 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
                     destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
                 } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
                            GRALLOC_USAGE_HW_CAMERA_ZSL) {
+                    // Note: Currently no support for ZSL mode
                     destBuf.format = HAL_PIXEL_FORMAT_RGB_888;
                 }
 #ifndef USE_GRALLOC1
             }
 #endif
         }
-        destBuf.stride = srcBuf.stream->width;
-        destBuf.dataSpace = srcBuf.stream->data_space;
-        destBuf.buffer = srcBuf.buffer;
 
         if (destBuf.format == HAL_PIXEL_FORMAT_BLOB) {
             needJpeg = true;
@@ -1096,8 +1106,10 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         }
         if (res == OK) {
             // Lock buffer for writing
-            if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888) {
-                if (destBuf.format == HAL_PIXEL_FORMAT_YCbCr_420_888) {
+            if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
+                srcBuf.stream->format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
+                if (destBuf.format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
+                    destBuf.format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
                     android_ycbcr ycbcr = android_ycbcr();
                     res = GrallocModule::getInstance().lock_ycbcr(*(destBuf.buffer),
 #ifdef USE_GRALLOC1
@@ -1107,8 +1119,6 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
 #endif
                                                                   0, 0, destBuf.width,
                                                                   destBuf.height, &ycbcr);
-                    // This is only valid because we know that emulator's
-                    // YCbCr_420_888 is really contiguous NV21 under the hood
                     destBuf.img = static_cast<uint8_t *>(ycbcr.y);
                 } else {
                     ALOGE("Unexpected private format for flexible YUV: 0x%x", destBuf.format);
@@ -1522,6 +1532,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         1280,
         720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        1280,
+        720,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_YCbCr_420_888,
         1280,
         720,
@@ -1537,6 +1551,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         640,
         480,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        640,
+        480,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_YCbCr_420_888,
         640,
         480,
@@ -1549,6 +1567,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     const std::vector<int32_t> availableStreamConfigurations480p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
         320,
         240,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
@@ -1654,6 +1676,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         1280,
         720,
         Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        1280,
+        720,
+        Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_YCbCr_420_888,
         1280,
         720,
@@ -1669,6 +1695,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         640,
         480,
         Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        640,
+        480,
+        Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_YCbCr_420_888,
         640,
         480,
@@ -1681,6 +1711,10 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     const std::vector<int64_t> availableMinFrameDurations480p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
         320,
         240,
         Sensor::kFrameDurationRange[0],
