@@ -45,16 +45,17 @@ enum class CameraSessionState {
 
 extern const std::unordered_map<CameraSessionState, std::string> kCameraSessionStateNames;
 
-typedef struct _camera_config {
-    uint32_t codec_type;
-    uint32_t resolution;
-    uint32_t reserved[6];
-} camera_config_t;
-
 typedef enum _ack_value {
     NACK_CONFIG = 0,
     ACK_CONFIG = 1,
 } camera_ack_t;
+
+typedef struct _camera_config {
+    uint32_t cameraId;
+    uint32_t codec_type;
+    uint32_t resolution;
+    uint32_t reserved[5];
+} camera_config_t;
 
 typedef enum _camera_cmd {
     CMD_OPEN = 11,
@@ -72,10 +73,20 @@ typedef struct _camera_config_cmd {
     camera_config_t config;
 } camera_config_cmd_t;
 
+typedef struct _camera_info {
+    uint32_t cameraId;
+    uint32_t codec_type;
+    uint32_t resolution;
+    uint32_t sensorOrientation;
+    uint32_t facing;  // '0' for back camera and '1' for front camera
+    uint32_t reserved[3];
+} camera_info_t;
+
 typedef struct _camera_capability {
-    uint32_t codec_type;  // All supported codec_type
-    uint32_t resolution;  // All supported resolution
-    uint32_t reserved[6];
+    uint32_t codec_type;          // All supported codec_type
+    uint32_t resolution;          // All supported resolution
+    uint32_t maxNumberOfCameras;  // Max will be restricted to 2
+    uint32_t reserved[5];
 } camera_capability_t;
 
 typedef enum _camera_packet_type {
@@ -84,11 +95,12 @@ typedef enum _camera_packet_type {
     CAMERA_CONFIG = 2,
     CAMERA_DATA = 3,
     ACK = 4,
+    CAMERA_INFO = 5,
 } camera_packet_type_t;
 
 typedef struct _camera_header {
     camera_packet_type_t type;
-    uint32_t size;
+    uint32_t size;  // number of cameras * sizeof(camera_info_t)
 } camera_header_t;
 
 typedef struct _camera_packet {

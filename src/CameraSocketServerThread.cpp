@@ -145,7 +145,7 @@ bool CameraSocketServerThread::configureCapabilities() {
     ssize_t recv_size = 0;
     camera_ack_t ack_payload = ACK_CONFIG;
 
-    camera_config_t config = {};
+    camera_info_t camera_info = {};
     camera_capability_t capability = {};
 
     camera_packet_t *cap_packet = NULL;
@@ -187,23 +187,23 @@ bool CameraSocketServerThread::configureCapabilities() {
         goto out;
     }
 
-    if (header.type != CAMERA_CONFIG || header.size != sizeof(camera_config_t)) {
+    if (header.type != CAMERA_INFO || header.size != sizeof(camera_info_t)) {
         ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s or size: %zu", __FUNCTION__,
               camera_type_to_str(header.type), recv_size);
         goto out;
     }
 
-    if ((recv_size = recv(mClientFd, (char *)&config, sizeof(camera_config_t), MSG_WAITALL)) < 0) {
-        ALOGE(LOG_TAG "%s: Failed to receive camera config, err: %s ", __FUNCTION__,
-              strerror(errno));
+    if ((recv_size = recv(mClientFd, (char *)&camera_info, sizeof(camera_info_t), MSG_WAITALL)) <
+        0) {
+        ALOGE(LOG_TAG "%s: Failed to receive camera info, err: %s ", __FUNCTION__, strerror(errno));
         goto out;
     }
 
-    ALOGI(LOG_TAG "%s: Received  CAMERA_CONFIG packet from client with recv_size: %zd ",
-          __FUNCTION__, recv_size);
+    ALOGI(LOG_TAG "%s: Received CAMERA_INFO packet from client with recv_size: %zd ", __FUNCTION__,
+          recv_size);
 
     ALOGI(LOG_TAG "%s - codec_type: %s, resolution: %s", __FUNCTION__,
-          codec_type_to_str(config.codec_type), resolution_to_str(config.resolution));
+          codec_type_to_str(camera_info.codec_type), resolution_to_str(camera_info.resolution));
 
     ack_packet = (camera_packet_t *)malloc(ack_packet_size);
     if (ack_packet == NULL) {
@@ -211,7 +211,7 @@ bool CameraSocketServerThread::configureCapabilities() {
         goto out;
     }
 
-    switch (config.codec_type) {
+    switch (camera_info.codec_type) {
         case uint32_t(VideoCodecType::kH264):
         case uint32_t(VideoCodecType::kH265):
             validCodecType = true;
@@ -221,7 +221,7 @@ bool CameraSocketServerThread::configureCapabilities() {
             break;
     }
 
-    switch (config.resolution) {
+    switch (camera_info.resolution) {
         case uint32_t(FrameResolution::k480p):
         case uint32_t(FrameResolution::k720p):
         case uint32_t(FrameResolution::k1080p):
@@ -234,7 +234,7 @@ bool CameraSocketServerThread::configureCapabilities() {
 
     if (validResolution) {
         // Set Camera capable resolution based on remote client capability info.
-        setCameraResolution(config.resolution);
+        setCameraResolution(camera_info.resolution);
     } else {
         // Set default resolution if receive invalid capability info from client.
         // Default resolution would be 480p.
@@ -247,7 +247,7 @@ bool CameraSocketServerThread::configureCapabilities() {
 
     if (validResolution && validCodecType) {
         // Store codec type and resolution based on remote client capability info.
-        mVideoDecoder->setCodecTypeAndResolution(config.codec_type, config.resolution);
+        mVideoDecoder->setCodecTypeAndResolution(camera_info.codec_type, camera_info.resolution);
     } else {
         mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
                                                  (uint32_t)FrameResolution::k480p);
