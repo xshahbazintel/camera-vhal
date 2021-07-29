@@ -150,15 +150,6 @@ public:
      ***************************************************************************/
 
     /*
-     * Gets fake camera orientation.
-     */
-    int getFakeCameraOrientation() {
-        const char *key = "remote.camera.fake.orientation";
-        int degree = property_get_int32(key, 90);
-        return degree;
-    }
-
-    /*
      * Gets number of virtual cameras.
      */
     int getVirtualCameraNum() const { return mVirtualCameraNum; }

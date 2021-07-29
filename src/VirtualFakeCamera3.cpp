@@ -380,8 +380,6 @@ status_t VirtualFakeCamera3::closeCamera() {
 }
 
 status_t VirtualFakeCamera3::getCameraInfo(struct camera_info *info) {
-    info->facing = mFacingBack ? CAMERA_FACING_BACK : CAMERA_FACING_FRONT;
-    info->orientation = gVirtualCameraFactory.getFakeCameraOrientation();
     return VirtualCamera3::getCameraInfo(info);
 }
 
@@ -1373,16 +1371,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     const int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
 
-    char mode[PROPERTY_VALUE_MAX];
-    static int32_t orientation = 0;
-    if ((property_get("persist.remote.camera.orientation", mode, nullptr) > 0) &&
-        (!strcmp(mode, "portrait"))) {
-        ALOGV("persist.remote.camera.orientation: portrait");
-        orientation = 270;
-    } else {
-        ALOGV("persist.remote.camera.orientation: landscape");
-        orientation = 0;
-    }
+    int32_t orientation = gCameraSensorOrientation;
     ADD_STATIC_ENTRY(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
 
     static const uint8_t timestampSource = ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;

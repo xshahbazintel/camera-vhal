@@ -35,6 +35,13 @@ namespace socket {
 enum class VideoCodecType { kH264 = 1, kH265 = 2, kAll = 3 };
 enum class FrameResolution { k480p = 1, k720p = 2, k1080p = 4, kAll = 7 };
 
+enum class SensorOrientation {
+    ORIENTATION_0 = 0,
+    ORIENTATION_90 = 90,
+    ORIENTATION_180 = 180,
+    ORIENTATION_270 = 270
+};
+
 enum class CameraSessionState {
     kNone,
     kCameraOpened,

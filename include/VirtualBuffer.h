@@ -22,6 +22,9 @@ extern int32_t srcCameraHeight;
 extern int32_t srcWidth;
 extern int32_t srcHeight;
 
+// Orientation info of the image sensor based on client device request.
+extern uint32_t gCameraSensorOrientation;
+
 extern bool gCapabilityInfoReceived;
 
 enum class VideoBufferType {

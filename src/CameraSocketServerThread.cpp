@@ -51,6 +51,8 @@ namespace android {
 int32_t srcCameraWidth;
 int32_t srcCameraHeight;
 
+uint32_t gCameraSensorOrientation;
+
 bool gCapabilityInfoReceived;
 
 using namespace socket;
@@ -140,6 +142,7 @@ bool CameraSocketServerThread::configureCapabilities() {
     ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
 
     bool status = false, validCodecType = false, validResolution = false;
+    bool validOrientation = false;
     size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
     size_t cap_packet_size = sizeof(camera_header_t) + sizeof(camera_capability_t);
     ssize_t recv_size = 0;
@@ -205,6 +208,8 @@ bool CameraSocketServerThread::configureCapabilities() {
     ALOGI(LOG_TAG "%s - codec_type: %s, resolution: %s", __FUNCTION__,
           codec_type_to_str(camera_info.codec_type), resolution_to_str(camera_info.resolution));
 
+    ALOGI(LOG_TAG "%s: Camera sensor orientation = %u", __func__, camera_info.sensorOrientation);
+
     ack_packet = (camera_packet_t *)malloc(ack_packet_size);
     if (ack_packet == NULL) {
         ALOGE(LOG_TAG "%s: ack camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
@@ -232,6 +237,18 @@ bool CameraSocketServerThread::configureCapabilities() {
             break;
     }
 
+    switch (camera_info.sensorOrientation) {
+        case uint32_t(SensorOrientation::ORIENTATION_0):
+        case uint32_t(SensorOrientation::ORIENTATION_90):
+        case uint32_t(SensorOrientation::ORIENTATION_180):
+        case uint32_t(SensorOrientation::ORIENTATION_270):
+            validOrientation = true;
+            break;
+        default:
+            validOrientation = false;
+            break;
+    }
+
     if (validResolution) {
         // Set Camera capable resolution based on remote client capability info.
         setCameraResolution(camera_info.resolution);
@@ -255,6 +272,15 @@ bool CameraSocketServerThread::configureCapabilities() {
               "%s: Not received valid resolution and codec type, "
               "hence selected 480p and H264 as default",
               __FUNCTION__);
+    }
+
+    if (validOrientation) {
+        // Set Camera sensor orientation based on remote client camera orientation.
+        gCameraSensorOrientation = camera_info.sensorOrientation;
+    } else {
+        // Set default camera sensor orientation if received invalid orientation data from client.
+        // Default sensor orientation would be zero deg and consider as landscape display.
+        gCameraSensorOrientation = (uint32_t)SensorOrientation::ORIENTATION_0;
     }
 
     ack_payload = (validResolution && validCodecType) ? ACK_CONFIG : NACK_CONFIG;
