@@ -421,6 +421,22 @@ bool CameraSocketServerThread::threadLoop() {
                         // recv frame
                         if ((size = recv(mClientFd, (char *)mSocketBuffer.data(), header.size,
                                          MSG_WAITALL)) > 0) {
+                            if (size < header.size) {
+                                ALOGW("%s : Incomplete data read %zd/%u bytes", __func__, size,
+                                      header.size);
+                                size_t remaining_size = header.size;
+                                remaining_size -= size;
+                                while (remaining_size > 0) {
+                                    if ((size = recv(mClientFd, (char *)mSocketBuffer.data() + size,
+                                                     remaining_size, MSG_WAITALL)) > 0) {
+                                        remaining_size -= size;
+                                        ALOGI("%s : Read-%zd after Incomplete data, remaining-%lu",
+                                              __func__, size, remaining_size);
+                                    }
+                                }
+                                size = header.size;
+                            }
+
                             mSocketBufferSize = header.size;
                             ALOGVV("%s: Camera session state: %s", __func__,
                                    kCameraSessionStateNames.at(mCameraSessionState).c_str());
