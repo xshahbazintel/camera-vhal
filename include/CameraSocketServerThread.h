@@ -28,6 +28,8 @@
 #include <memory>
 #include <atomic>
 #include <array>
+#include <chrono>
+#include <thread>
 #include "CGCodec.h"
 #include "CameraSocketCommand.h"
 
@@ -43,19 +45,21 @@ public:
     virtual void requestExit();
     virtual status_t requestExitAndWait();
     int getClientFd();
-    void clearBuffer(char *buffer, int width, int height);
-    bool configureCapabilities();
-    void setCameraResolution(uint32_t resolution);
 
 private:
     virtual status_t readyToRun();
     virtual bool threadLoop() override;
+
+    bool configureCapabilities();
+    void setCameraResolution(uint32_t resolution);
+    void setCameraMaxSupportedResolution(int32_t width, int32_t height);
 
     Mutex mMutex;
     bool mRunning;  // guarding only when it's important
     int mSocketServerFd = -1;
     std::string mSocketPath;
     int mClientFd = -1;
+    int mNumOfCamerasRequested;  // Number of cameras requested to support by client.
 
     std::shared_ptr<CGVideoDecoder> mVideoDecoder;
     std::atomic<socket::CameraSessionState> &mCameraSessionState;
@@ -64,6 +68,13 @@ private:
     // Source: https://tools.ietf.org/html/rfc6184#page-13
     std::array<uint8_t, 200 * 1024> mSocketBuffer = {};
     size_t mSocketBufferSize = 0;
+
+    struct ValidateClientCapability {
+        bool validCodecType = false;
+        bool validResolution = false;
+        bool validOrientation = false;
+        bool validCameraFacing = false;
+    };
 };
 }  // namespace android
 

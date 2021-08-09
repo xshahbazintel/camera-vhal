@@ -53,8 +53,8 @@ using namespace chrono_literals;
 
 namespace android {
 
-int32_t srcWidth;
-int32_t srcHeight;
+int32_t gSrcWidth;
+int32_t gSrcHeight;
 
 using namespace socket;
 /**
@@ -93,17 +93,15 @@ const float VirtualFakeCamera3::kExposureWanderMax = 1;
  * Camera device lifecycle methods
  */
 
-VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_module_t *module,
+VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                                        std::shared_ptr<CameraSocketServerThread> socket_server,
                                        std::shared_ptr<CGVideoDecoder> decoder,
                                        std::atomic<CameraSessionState> &state)
     : VirtualCamera3(cameraId, module),
-      mFacingBack(facingBack),
       mSocketServer(socket_server),
       mDecoder(decoder),
       mCameraSessionState{state} {
-    ALOGI("Constructing virtual fake camera 3: ID %d, facing %s", mCameraID,
-          facingBack ? "back" : "front");
+    ALOGI("Constructing virtual fake camera 3: for ID %d", mCameraID);
 
     mControlMode = ANDROID_CONTROL_MODE_AUTO;
     mFacePriority = false;
@@ -122,6 +120,7 @@ VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_
     mSrcWidth = 0;
     mSrcHeight = 0;
     mDecoderResolution = 0;
+    mFacingBack = false;
     mDecoderInitDone = false;
     mInputStream = NULL;
     mSensor = NULL;
@@ -137,8 +136,7 @@ VirtualFakeCamera3::~VirtualFakeCamera3() {
     }
 }
 
-status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *frame_dims,
-                                        const char *facing_dir) {
+status_t VirtualFakeCamera3::Initialize() {
     ALOGVV("%s: E", __FUNCTION__);
     status_t res;
 
@@ -159,7 +157,7 @@ status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *fra
         return res;
     }
 
-    return VirtualCamera3::Initialize(nullptr, nullptr, nullptr);
+    return VirtualCamera3::Initialize();
 }
 
 status_t VirtualFakeCamera3::openCamera(hw_device_t **device) {
@@ -199,6 +197,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     camera_config_cmd_t config_cmd = {};
     config_cmd.version = CAMERA_VHAL_VERSION_2;
     config_cmd.cmd = cmd;
+    config_cmd.config.cameraId = mCameraID;
     config_cmd.config.codec_type = mDecoder->getCodecType();
     config_cmd.config.resolution = mDecoderResolution;
 
@@ -475,8 +474,8 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
             mSrcWidth = newStream->width;
             mSrcHeight = newStream->height;
             // Update globally for clearing used buffers properly.
-            srcWidth = mSrcWidth;
-            srcHeight = mSrcHeight;
+            gSrcWidth = mSrcWidth;
+            gSrcHeight = mSrcHeight;
         }
     }
     mInputStream = inputStream;
@@ -1306,11 +1305,17 @@ bool VirtualFakeCamera3::hasCapability(AvailableCapabilities cap) {
     return idx >= 0;
 }
 
-void VirtualFakeCamera3::setMaxSupportedResolution(int32_t width, int32_t height) {
+void VirtualFakeCamera3::setCameraFacingInfo() {
+    // Updating facing info based on client request.
+    mFacingBack = gCameraFacingBack;
+    ALOGI("%s: Camera ID %d is set as %s facing", __func__, mCameraID,
+          mFacingBack ? "Back" : "Front");
+}
+void VirtualFakeCamera3::setMaxSupportedResolution() {
     // Updating max sensor supported resolution based on client camera.
     // This would be used in sensor related operations and metadata info.
-    mSensorWidth = width;
-    mSensorHeight = height;
+    mSensorWidth = gCameraMaxWidth;
+    mSensorHeight = gCameraMaxHeight;
     ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d", __func__, mCameraID, mSensorWidth,
           mSensorHeight);
 }
@@ -1321,23 +1326,16 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     status_t res;
     int32_t width = 0, height = 0;
 
-    // Check whether capability info is received or not and
-    // wait until receive capability info from client HW.
-    // Metadata will be updated always based on this capability
-    // info from the client Camera HW.
-    while (!gCapabilityInfoReceived) {
-        ALOGVV("%s: waiting for the capability info...", __func__);
-        // 1ms sleep for this thread.
-        std::this_thread::sleep_for(1ms);
-    }
-
-    ALOGVV("%s: Received capability info from Client Device for Camera %d", __func__, mCameraID);
-    // Updating width and height based on capability info.
-    width = srcCameraWidth;
-    height = srcCameraHeight;
+    ALOGVV("%s: Updating metadata for Camera %d", __func__, mCameraID);
 
     // Setting the max supported Camera resolution.
-    setMaxSupportedResolution(width, height);
+    setMaxSupportedResolution();
+    // Set camera facing info.
+    setCameraFacingInfo();
+
+    // Updating width and height based on capability info.
+    width = mSensorWidth;
+    height = mSensorHeight;
 
 #define ADD_STATIC_ENTRY(name, varptr, count) \
     availableCharacteristicsKeys.add(name);   \
@@ -1366,9 +1364,9 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     static const float sensorPhysicalSize[2] = {3.20f, 2.40f};  // mm
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_PHYSICAL_SIZE, sensorPhysicalSize, 2);
 
-    const int32_t pixelArray[] = {mSensorWidth, mSensorHeight};
+    int32_t pixelArray[] = {mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixelArray, 2);
-    const int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
+    int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
 
     int32_t orientation = gCameraSensorOrientation;
@@ -1404,11 +1402,11 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
         // 5 cm min focus distance for back camera, infinity (fixed focus) for front
-        const float minFocusDistance = mFacingBack ? 1.0 / 0.05 : 0.0;
+        float minFocusDistance = mFacingBack ? 1.0 / 0.05 : 0.0;
         ADD_STATIC_ENTRY(ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE, &minFocusDistance, 1);
 
         // 5 m hyperfocal distance for back camera, infinity (fixed focus) for front
-        const float hyperFocalDistance = mFacingBack ? 1.0 / 5.0 : 0.0;
+        float hyperFocalDistance = mFacingBack ? 1.0 / 5.0 : 0.0;
         ADD_STATIC_ENTRY(ANDROID_LENS_INFO_HYPERFOCAL_DISTANCE, &hyperFocalDistance, 1);
 
         static const float apertures = 2.8f;
@@ -1478,7 +1476,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          sizeof(lensRadialDistortion) / sizeof(float));
     }
 
-    const uint8_t lensFacing = mFacingBack ? ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
+    uint8_t lensFacing = mFacingBack ? ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
     ADD_STATIC_ENTRY(ANDROID_LENS_FACING, &lensFacing, 1);
 
     // android.flash

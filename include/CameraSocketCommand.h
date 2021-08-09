@@ -42,6 +42,8 @@ enum class SensorOrientation {
     ORIENTATION_270 = 270
 };
 
+enum class CameraFacing { BACK_FACING = 0, FRONT_FACING = 1 };
+
 enum class CameraSessionState {
     kNone,
     kCameraOpened,

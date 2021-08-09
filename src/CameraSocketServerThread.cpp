@@ -48,12 +48,20 @@ android::ClientVideoBuffer *android::ClientVideoBuffer::ic_instance = 0;
 
 namespace android {
 
-int32_t srcCameraWidth;
-int32_t srcCameraHeight;
+uint32_t gMaxNumOfCamerasSupported;
+
+int32_t gMaxSupportedWidth;
+int32_t gMaxSupportedHeight;
+
+int32_t gCameraMaxWidth;
+int32_t gCameraMaxHeight;
 
 uint32_t gCameraSensorOrientation;
+bool gCameraFacingBack;
 
 bool gCapabilityInfoReceived;
+bool gStartMetadataUpdate;
+bool gDoneMetadataUpdate;
 
 using namespace socket;
 CameraSocketServerThread::CameraSocketServerThread(std::string suffix,
@@ -69,6 +77,7 @@ CameraSocketServerThread::CameraSocketServerThread(std::string suffix,
     mSocketPath = (k8s_env_value != NULL && !strcmp(k8s_env_value, "true")) ? "/conn/camera-socket"
                                                                             : sock_path.c_str();
     ALOGI("%s camera socket server path is %s", __FUNCTION__, mSocketPath.c_str());
+    mNumOfCamerasRequested = 0;
 }
 
 CameraSocketServerThread::~CameraSocketServerThread() {
@@ -107,12 +116,15 @@ status_t CameraSocketServerThread::readyToRun() {
     return OK;
 }
 
-void CameraSocketServerThread::clearBuffer(char *buffer, int width, int height) {
-    ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
-    char *uv_offset = buffer + width * height;
-    memset(buffer, 0x10, (width * height));
-    memset(uv_offset, 0x80, (width * height) / 2);
-    ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
+void CameraSocketServerThread::setCameraMaxSupportedResolution(int32_t width, int32_t height) {
+    ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
+
+    if (gMaxSupportedWidth < width && gMaxSupportedHeight < height) {
+        gMaxSupportedWidth = width;
+        gMaxSupportedHeight = height;
+        ALOGI(LOG_TAG "%s: Set Camera Max supported resolution: %dx%d", __FUNCTION__,
+              gMaxSupportedWidth, gMaxSupportedHeight);
+    }
 }
 
 void CameraSocketServerThread::setCameraResolution(uint32_t resolution) {
@@ -120,35 +132,39 @@ void CameraSocketServerThread::setCameraResolution(uint32_t resolution) {
 
     switch (resolution) {
         case uint32_t(FrameResolution::k480p):
-            srcCameraWidth = 640;
-            srcCameraHeight = 480;
+            gCameraMaxWidth = 640;
+            gCameraMaxHeight = 480;
             break;
         case uint32_t(FrameResolution::k720p):
-            srcCameraWidth = 1280;
-            srcCameraHeight = 720;
+            gCameraMaxWidth = 1280;
+            gCameraMaxHeight = 720;
             break;
         case uint32_t(FrameResolution::k1080p):
-            srcCameraWidth = 1920;
-            srcCameraHeight = 1080;
+            gCameraMaxWidth = 1920;
+            gCameraMaxHeight = 1080;
             break;
         default:
             break;
     }
-    ALOGI(LOG_TAG "%s: Set Camera resolution: %dx%d", __FUNCTION__, srcCameraWidth,
-          srcCameraHeight);
+    ALOGI(LOG_TAG "%s: Set Camera resolution: %dx%d", __FUNCTION__, gCameraMaxWidth,
+          gCameraMaxHeight);
+
+    setCameraMaxSupportedResolution(gCameraMaxWidth, gCameraMaxHeight);
 }
 
 bool CameraSocketServerThread::configureCapabilities() {
     ALOGVV(LOG_TAG " %s Enter", __FUNCTION__);
 
-    bool status = false, validCodecType = false, validResolution = false;
-    bool validOrientation = false;
+    bool status = false;
+    bool valid_client_cap_info = false;
+    int camera_id, expctd_cam_id;
+    struct ValidateClientCapability val_client_cap[MAX_NUMBER_OF_SUPPORTED_CAMERAS];
     size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
     size_t cap_packet_size = sizeof(camera_header_t) + sizeof(camera_capability_t);
     ssize_t recv_size = 0;
     camera_ack_t ack_payload = ACK_CONFIG;
 
-    camera_info_t camera_info = {};
+    camera_info_t camera_info[MAX_NUMBER_OF_SUPPORTED_CAMERAS] = {};
     camera_capability_t capability = {};
 
     camera_packet_t *cap_packet = NULL;
@@ -176,6 +192,7 @@ bool CameraSocketServerThread::configureCapabilities() {
     cap_packet->header.size = sizeof(camera_capability_t);
     capability.codec_type = (uint32_t)VideoCodecType::kAll;
     capability.resolution = (uint32_t)FrameResolution::kAll;
+    capability.maxNumberOfCameras = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
 
     memcpy(cap_packet->payload, &capability, sizeof(camera_capability_t));
     if (send(mClientFd, cap_packet, cap_packet_size, 0) < 0) {
@@ -190,100 +207,211 @@ bool CameraSocketServerThread::configureCapabilities() {
         goto out;
     }
 
-    if (header.type != CAMERA_INFO || header.size != sizeof(camera_info_t)) {
-        ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s or size: %zu", __FUNCTION__,
-              camera_type_to_str(header.type), recv_size);
+    if (header.type != CAMERA_INFO) {
+        ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s", __FUNCTION__,
+              camera_type_to_str(header.type));
         goto out;
     }
 
-    if ((recv_size = recv(mClientFd, (char *)&camera_info, sizeof(camera_info_t), MSG_WAITALL)) <
-        0) {
+    // Get the number fo cameras requested to support from client.
+    for (int i = 1; i <= MAX_NUMBER_OF_SUPPORTED_CAMERAS; i++) {
+        if (header.size == i * sizeof(camera_info_t)) {
+            mNumOfCamerasRequested = i;
+            break;
+        } else if (mNumOfCamerasRequested == 0 && i == MAX_NUMBER_OF_SUPPORTED_CAMERAS) {
+            ALOGE(LOG_TAG
+                  "%s: Failed to support number of cameras requested by client "
+                  "which is higher than the max number of cameras supported in the HAL",
+                  __FUNCTION__);
+            goto out;
+        }
+    }
+
+    if (mNumOfCamerasRequested == 0) {
+        ALOGE(LOG_TAG "%s: invalid header size received, size = %zu", __FUNCTION__, recv_size);
+        goto out;
+    } else {
+        // Update the number of cameras globally to create camera pipeline.
+        gMaxNumOfCamerasSupported = mNumOfCamerasRequested;
+    }
+
+    if ((recv_size = recv(mClientFd, (char *)&camera_info,
+                          mNumOfCamerasRequested * sizeof(camera_info_t), MSG_WAITALL)) < 0) {
         ALOGE(LOG_TAG "%s: Failed to receive camera info, err: %s ", __FUNCTION__, strerror(errno));
         goto out;
     }
 
     ALOGI(LOG_TAG "%s: Received CAMERA_INFO packet from client with recv_size: %zd ", __FUNCTION__,
           recv_size);
+    ALOGI(LOG_TAG "%s: Number of cameras requested = %d", __FUNCTION__, mNumOfCamerasRequested);
 
-    ALOGI(LOG_TAG "%s - codec_type: %s, resolution: %s", __FUNCTION__,
-          codec_type_to_str(camera_info.codec_type), resolution_to_str(camera_info.resolution));
+    // Update status globally after received successful capability info.
+    gCapabilityInfoReceived = true;
 
-    ALOGI(LOG_TAG "%s: Camera sensor orientation = %u", __func__, camera_info.sensorOrientation);
+    // validate capability info received from the client.
+    for (int i = 0; i < mNumOfCamerasRequested; i++) {
+        expctd_cam_id = i;
+        if (expctd_cam_id == (int)camera_info[i].cameraId)
+            ALOGVV(LOG_TAG
+                   "%s: Camera Id number %u received from client is matching with expected Id",
+                   __FUNCTION__, camera_info[i].cameraId);
+        else
+            ALOGI(LOG_TAG
+                  "%s: [Warning] Camera Id number %u received from client is not matching with "
+                  "expected Id %d",
+                  __FUNCTION__, camera_info[i].cameraId, expctd_cam_id);
+
+        switch (camera_info[i].codec_type) {
+            case uint32_t(VideoCodecType::kH264):
+            case uint32_t(VideoCodecType::kH265):
+                val_client_cap[i].validCodecType = true;
+                break;
+            default:
+                val_client_cap[i].validCodecType = false;
+                break;
+        }
+
+        switch (camera_info[i].resolution) {
+            case uint32_t(FrameResolution::k480p):
+            case uint32_t(FrameResolution::k720p):
+            case uint32_t(FrameResolution::k1080p):
+                val_client_cap[i].validResolution = true;
+                break;
+            default:
+                val_client_cap[i].validResolution = false;
+                break;
+        }
+
+        switch (camera_info[i].sensorOrientation) {
+            case uint32_t(SensorOrientation::ORIENTATION_0):
+            case uint32_t(SensorOrientation::ORIENTATION_90):
+            case uint32_t(SensorOrientation::ORIENTATION_180):
+            case uint32_t(SensorOrientation::ORIENTATION_270):
+                val_client_cap[i].validOrientation = true;
+                break;
+            default:
+                val_client_cap[i].validOrientation = false;
+                break;
+        }
+
+        switch (camera_info[i].facing) {
+            case uint32_t(CameraFacing::BACK_FACING):
+            case uint32_t(CameraFacing::FRONT_FACING):
+                val_client_cap[i].validCameraFacing = true;
+                break;
+            default:
+                val_client_cap[i].validCameraFacing = false;
+                break;
+        }
+    }
+
+    // Check whether recceived any invalid capability info or not.
+    // ACK packet to client would be updated based on this verification.
+    for (int i = 0; i < mNumOfCamerasRequested; i++) {
+        if (!val_client_cap[i].validCodecType || !val_client_cap[i].validResolution ||
+            !val_client_cap[i].validOrientation || !val_client_cap[i].validCameraFacing) {
+            valid_client_cap_info = false;
+            ALOGE("%s: capability info received from client is not completely correct and expected",
+                  __FUNCTION__);
+            break;
+        } else {
+            ALOGVV("%s: capability info received from client is correct and expected",
+                   __FUNCTION__);
+            valid_client_cap_info = true;
+        }
+    }
+
+    // Updating metadata for each camera seperately with its capability info received.
+    for (int i = 0; i < mNumOfCamerasRequested; i++) {
+        // Going to update metadata for each camera, so update the status.
+        gStartMetadataUpdate = false;
+        gDoneMetadataUpdate = false;
+        camera_id = i;
+        ALOGI(LOG_TAG
+              "%s - Client requested for codec_type: %s, resolution: %s, orientation: %u, and "
+              "facing: %u for camera Id %d",
+              __FUNCTION__, codec_type_to_str(camera_info[i].codec_type),
+              resolution_to_str(camera_info[i].resolution), camera_info[i].sensorOrientation,
+              camera_info[i].facing, camera_id);
+
+        if (val_client_cap[i].validResolution) {
+            // Set Camera capable resolution based on remote client capability info.
+            setCameraResolution(camera_info[i].resolution);
+        } else {
+            // Set default resolution if receive invalid capability info from client.
+            // Default resolution would be 480p.
+            setCameraResolution((uint32_t)FrameResolution::k480p);
+            ALOGE(LOG_TAG
+                  "%s: Not received valid resolution, "
+                  "hence selected 480p as default",
+                  __FUNCTION__);
+        }
+
+        if (val_client_cap[i].validResolution && val_client_cap[i].validCodecType) {
+            // Store codec type and resolution based on remote client capability info.
+            mVideoDecoder->setCodecTypeAndResolution(camera_info[i].codec_type,
+                                                     camera_info[i].resolution);
+        } else {
+            // Set default codec type if receive invalid capability info from client.
+            // Default codec type would be H264.
+            mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
+                                                     (uint32_t)FrameResolution::k480p);
+            ALOGE(LOG_TAG
+                  "%s: Not received valid resolution and codec type, "
+                  "hence selected 480p and H264 as default",
+                  __FUNCTION__);
+        }
+
+        if (val_client_cap[i].validOrientation) {
+            // Set Camera sensor orientation based on remote client camera orientation.
+            gCameraSensorOrientation = camera_info[i].sensorOrientation;
+        } else {
+            // Set default camera sensor orientation if received invalid orientation data from
+            // client. Default sensor orientation would be zero deg and consider as landscape
+            // display.
+            gCameraSensorOrientation = (uint32_t)SensorOrientation::ORIENTATION_0;
+            ALOGE(LOG_TAG
+                  "%s: Not received valid sensor orientation, "
+                  "hence selected ORIENTATION_0 as default",
+                  __FUNCTION__);
+        }
+
+        if (val_client_cap[i].validCameraFacing) {
+            // Set camera facing based on client request.
+            if (camera_info[i].facing == (uint32_t)CameraFacing::BACK_FACING)
+                gCameraFacingBack = true;
+            else
+                gCameraFacingBack = false;
+        } else {
+            // Set default camera facing info if received invalid facing info from client.
+            // Default would be back for camera Id '0' and front for camera Id '1'.
+            if (camera_id == 1)
+                gCameraFacingBack = false;
+            else
+                gCameraFacingBack = true;
+            ALOGE(LOG_TAG
+                  "%s: Not received valid camera facing info, "
+                  "hence selected default",
+                  __FUNCTION__);
+        }
+
+        // Start updating metadata for one camera, so update the status.
+        gStartMetadataUpdate = true;
+
+        // Wait till complete the metadata update for a camera.
+        while (!gDoneMetadataUpdate) {
+            ALOGVV("%s: wait till complete the metadata update for a camera", __FUNCTION__);
+            // 200us sleep for this thread.
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+    }
 
     ack_packet = (camera_packet_t *)malloc(ack_packet_size);
     if (ack_packet == NULL) {
         ALOGE(LOG_TAG "%s: ack camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
         goto out;
     }
-
-    switch (camera_info.codec_type) {
-        case uint32_t(VideoCodecType::kH264):
-        case uint32_t(VideoCodecType::kH265):
-            validCodecType = true;
-            break;
-        default:
-            validCodecType = false;
-            break;
-    }
-
-    switch (camera_info.resolution) {
-        case uint32_t(FrameResolution::k480p):
-        case uint32_t(FrameResolution::k720p):
-        case uint32_t(FrameResolution::k1080p):
-            validResolution = true;
-            break;
-        default:
-            validResolution = false;
-            break;
-    }
-
-    switch (camera_info.sensorOrientation) {
-        case uint32_t(SensorOrientation::ORIENTATION_0):
-        case uint32_t(SensorOrientation::ORIENTATION_90):
-        case uint32_t(SensorOrientation::ORIENTATION_180):
-        case uint32_t(SensorOrientation::ORIENTATION_270):
-            validOrientation = true;
-            break;
-        default:
-            validOrientation = false;
-            break;
-    }
-
-    if (validResolution) {
-        // Set Camera capable resolution based on remote client capability info.
-        setCameraResolution(camera_info.resolution);
-    } else {
-        // Set default resolution if receive invalid capability info from client.
-        // Default resolution would be 480p.
-        setCameraResolution((uint32_t)FrameResolution::k480p);
-        ALOGE(LOG_TAG
-              "%s: Not received valid resolution, "
-              "hence selected 480p as default",
-              __FUNCTION__);
-    }
-
-    if (validResolution && validCodecType) {
-        // Store codec type and resolution based on remote client capability info.
-        mVideoDecoder->setCodecTypeAndResolution(camera_info.codec_type, camera_info.resolution);
-    } else {
-        mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
-                                                 (uint32_t)FrameResolution::k480p);
-        ALOGE(LOG_TAG
-              "%s: Not received valid resolution and codec type, "
-              "hence selected 480p and H264 as default",
-              __FUNCTION__);
-    }
-
-    if (validOrientation) {
-        // Set Camera sensor orientation based on remote client camera orientation.
-        gCameraSensorOrientation = camera_info.sensorOrientation;
-    } else {
-        // Set default camera sensor orientation if received invalid orientation data from client.
-        // Default sensor orientation would be zero deg and consider as landscape display.
-        gCameraSensorOrientation = (uint32_t)SensorOrientation::ORIENTATION_0;
-    }
-
-    ack_payload = (validResolution && validCodecType) ? ACK_CONFIG : NACK_CONFIG;
+    ack_payload = (valid_client_cap_info) ? ACK_CONFIG : NACK_CONFIG;
 
     ack_packet->header.type = ACK;
     ack_packet->header.size = sizeof(camera_ack_t);
@@ -370,16 +498,16 @@ bool CameraSocketServerThread::threadLoop() {
         bool status = false;
         status = configureCapabilities();
         if (status) {
-            ALOGI(LOG_TAG "%s: Client camera capability info received successfully..",
-                  __FUNCTION__);
-            // Update Capability exchange completed sucessfully.
-            gCapabilityInfoReceived = true;
+            ALOGI(LOG_TAG
+                  "%s: Capability negotiation and metadata update"
+                  "for %d camera(s) completed successfully..",
+                  __FUNCTION__, mNumOfCamerasRequested);
         }
 
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         char *fbuffer = (char *)handle->clientBuf[handle->clientRevCount % 1].buffer;
-
-        clearBuffer(fbuffer, srcCameraWidth, srcCameraHeight);
+        // Reset and clear the input buffer before receiving the frames.
+        handle->reset();
 
         struct pollfd fd;
         int event;
@@ -400,7 +528,7 @@ bool CameraSocketServerThread::threadLoop() {
                 shutdown(mClientFd, SHUT_RDWR);
                 close(mClientFd);
                 mClientFd = -1;
-                clearBuffer(fbuffer, srcCameraWidth, srcCameraHeight);
+                handle->reset();
                 break;
             } else if (event & POLLIN) {  // preview / record
                 // data is available in socket => read data
@@ -424,9 +552,8 @@ bool CameraSocketServerThread::threadLoop() {
                         if (header.type == REQUEST_CAPABILITY) {
                             ALOGI(LOG_TAG
                                   "%s: [Warning] Capability negotiation was already "
-                                  "done with %dx%d; Can't do re-negotiation again in "
-                                  "the run-time!!!",
-                                  __FUNCTION__, srcCameraWidth, srcCameraHeight);
+                                  "done for %d camera(s); Can't do re-negotiation again!!!",
+                                  __FUNCTION__, mNumOfCamerasRequested);
                             continue;
                         } else if (header.type != CAMERA_DATA) {
                             ALOGE(LOG_TAG "%s: invalid camera_packet_type: %s", __FUNCTION__,

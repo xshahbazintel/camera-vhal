@@ -27,6 +27,9 @@
 #include <memory>
 #include "CameraSocketServerThread.h"
 #include "CGCodec.h"
+#include "VirtualBuffer.h"
+
+#define MAX_NUMBER_OF_SUPPORTED_CAMERAS 2  // Max restricted to two, but can be extended.
 
 namespace android {
 
@@ -150,9 +153,9 @@ public:
      ***************************************************************************/
 
     /*
-     * Gets number of virtual cameras.
+     * Gets number of virtual remote cameras.
      */
-    int getVirtualCameraNum() const { return mVirtualCameraNum; }
+    int getVirtualCameraNum() const { return mNumOfCamerasSupported; }
 
     /*
      * Checks whether or not the constructor has succeeded.
@@ -165,12 +168,10 @@ private:
      ***************************************************************************/
 
     /*
-     * Creates a fake camera and adds it to mVirtualCameras. If backCamera is
-     * true, it will be created as if it were a camera on the back of the phone.
-     * Otherwise, it will be front-facing.
+     * Creates a virtual remote camera and adds it to mVirtualCameras.
      */
-    void createFakeCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                          std::shared_ptr<CGVideoDecoder> decoder, bool backCamera);
+    void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
+                                   std::shared_ptr<CGVideoDecoder> decoder, int cameraId);
     /*
      * Waits till remote-props has done setup, timeout after 500ms.
      */
@@ -197,11 +198,8 @@ private:
     // Array of cameras available for the emulation.
     VirtualBaseCamera **mVirtualCameras;
 
-    // Number of virtual cameras (including the fake ones).
-    int mVirtualCameraNum;
-
-    // Number of virtual fake cameras.
-    int mFakeCameraNum;
+    // Number of cameras supported in the HAL based on client request.
+    int mNumOfCamerasSupported;
 
     // Flags whether or not constructor has succeeded.
     bool mConstructedOK;

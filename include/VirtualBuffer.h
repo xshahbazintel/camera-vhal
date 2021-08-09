@@ -11,21 +11,40 @@ extern bool gIsInFrameI420;
 extern bool gIsInFrameH264;
 extern bool gUseVaapi;
 
-// Camera max input supported res width and height.
-// This would be used for buffer allocation
-// based on client capability.
-extern int32_t srcCameraWidth;
-extern int32_t srcCameraHeight;
+// Max no of cameras supported based on client device request.
+extern uint32_t gMaxNumOfCamerasSupported;
+
+// Max supported res width and height out of all cameras.
+// Used for input buffer allocation.
+extern int32_t gMaxSupportedWidth;
+extern int32_t gMaxSupportedHeight;
+
+// Max supported res width and height of each camera.
+// This would be vary for each camera based on its
+// capability requested by client. And used for metadata updation
+// during boot time.
+extern int32_t gCameraMaxWidth;
+extern int32_t gCameraMaxHeight;
 
 // Camera input res width and height during running
 // condition. It would vary based on app's request.
-extern int32_t srcWidth;
-extern int32_t srcHeight;
+extern int32_t gSrcWidth;
+extern int32_t gSrcHeight;
 
 // Orientation info of the image sensor based on client device request.
 extern uint32_t gCameraSensorOrientation;
 
+// Camera facing as either back or front based on client device request.
+// True for back and false for front camera always.
+extern bool gCameraFacingBack;
+
+// Indicate client capability info received successfully when it is true.
 extern bool gCapabilityInfoReceived;
+
+// Status of metadata update, which helps to sync and update
+// each metadata for each camera seperately.
+extern bool gStartMetadataUpdate;
+extern bool gDoneMetadataUpdate;
 
 enum class VideoBufferType {
     kI420,
@@ -33,8 +52,8 @@ enum class VideoBufferType {
 };
 
 struct Resolution {
-    int width = srcCameraWidth;
-    int height = srcCameraHeight;
+    int width = gMaxSupportedWidth;
+    int height = gMaxSupportedHeight;
 };
 /// Video buffer and its information
 struct VideoBuffer {
@@ -56,9 +75,9 @@ struct VideoBuffer {
 
     // To clear used buffer based on current resolution.
     void clearBuffer() {
-        std::fill(buffer, buffer + srcWidth * srcHeight, 0x10);
-        uint8_t* uv_offset = buffer + srcWidth * srcHeight;
-        std::fill(uv_offset, uv_offset + (srcWidth * srcHeight) / 2, 0x80);
+        std::fill(buffer, buffer + gSrcWidth * gSrcHeight, 0x10);
+        uint8_t* uv_offset = buffer + gSrcWidth * gSrcHeight;
+        std::fill(uv_offset, uv_offset + (gSrcWidth * gSrcHeight) / 2, 0x80);
         decoded = false;
     }
 

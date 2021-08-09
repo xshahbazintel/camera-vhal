@@ -85,8 +85,7 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t Initialize(const char *device_name, const char *frame_dims,
-                                const char *facing_dir);
+    virtual status_t Initialize();
 
     /****************************************************************************
      * Camera module API and generic hardware device API implementation

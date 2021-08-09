@@ -62,66 +62,64 @@ void VirtualCameraFactory::readSystemProperties() {
 
 VirtualCameraFactory::VirtualCameraFactory()
     : mVirtualCameras(nullptr),
-      mVirtualCameraNum(0),
-      mFakeCameraNum(0),
+      mNumOfCamerasSupported(0),
       mConstructedOK(false),
       mCallbacks(nullptr) {
-    /*
-     * Figure out how many cameras need to be created, so we can allocate the
-     * array of virtual cameras before populating it.
-     */
-    int virtualCamerasSize = 0;
-
-    mCameraSessionState = socket::CameraSessionState::kNone;
-
-    waitForRemoteSfFakeCameraPropertyAvailable();
-    // Fake Cameras
-    if (isFakeCameraEmulationOn(/* backCamera */ true)) {
-        mFakeCameraNum++;
-    }
-    if (isFakeCameraEmulationOn(/* backCamera */ false)) {
-        mFakeCameraNum++;
-    }
-    virtualCamerasSize += mFakeCameraNum;
-
-    /*
-     * We have the number of cameras we need to create, now allocate space for
-     * them.
-     */
-    mVirtualCameras = new VirtualBaseCamera *[virtualCamerasSize];
-    if (mVirtualCameras == nullptr) {
-        ALOGE("%s: Unable to allocate virtual camera array for %d entries", __FUNCTION__,
-              mVirtualCameraNum);
-        return;
-    }
-    if (mVirtualCameras != nullptr) {
-        for (int n = 0; n < virtualCamerasSize; n++) {
-            mVirtualCameras[n] = nullptr;
-        }
-    }
-
     readSystemProperties();
 
     if (gIsInFrameH264) {
-        // create decoder
+        // Create decoder to decode H264/H265 input frames.
         ALOGV("%s Creating decoder.", __func__);
         mDecoder = std::make_shared<CGVideoDecoder>();
     }
 
-    // create socket server who push packets to decoder
+    // Create socket server which is used to communicate with client device.
     createSocketServer(mDecoder);
     ALOGV("%s socket server created: ", __func__);
 
-    // Create fake cameras, if enabled.
-    if (isFakeCameraEmulationOn(/* backCamera */ true)) {
-        createFakeCamera(mSocketServer, mDecoder, /* backCamera */ true);
-    }
-    if (isFakeCameraEmulationOn(/* backCamera */ false)) {
-        createFakeCamera(mSocketServer, mDecoder, /* backCamera */ false);
+    // Check whether capability info is received or not and
+    // wait until receive capability info from client HW.
+    // Number of supported cameras and its corresponding
+    // metadata info would be updated always based on this
+    // capability info from the remote client HW.
+    while (!gCapabilityInfoReceived) {
+        ALOGV("%s: waiting for the capability info...", __func__);
+        // 1ms sleep for this thread.
+        std::this_thread::sleep_for(1ms);
     }
 
-    ALOGI("%d cameras are being virtual. %d of them are fake cameras.", mVirtualCameraNum,
-          mFakeCameraNum);
+    ALOGV("%s: Received capability info from remote client device", __FUNCTION__);
+
+    // Update number of cameras requested from remote client HW.
+    mNumOfCamerasSupported = gMaxNumOfCamerasSupported;
+
+    // Allocate space for each cameras requested.
+    mVirtualCameras = new VirtualBaseCamera *[mNumOfCamerasSupported];
+    if (mVirtualCameras == nullptr) {
+        ALOGE("%s: Unable to allocate virtual camera array", __FUNCTION__);
+        return;
+    } else {
+        for (int n = 0; n < mNumOfCamerasSupported; n++) {
+            mVirtualCameras[n] = nullptr;
+        }
+    }
+
+    // Create cameras based on the client request.
+    for (int cameraId = 0; cameraId < mNumOfCamerasSupported; cameraId++) {
+        // Wait until start updating metadata for each camera.
+        while (!gStartMetadataUpdate) {
+            ALOGV("%s: wait until start updating metadata for a single camera", __func__);
+            // 200us sleep for this thread.
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+
+        createVirtualRemoteCamera(mSocketServer, mDecoder, cameraId);
+        // Created a camera successfully hence update the status.
+        gDoneMetadataUpdate = true;
+        gStartMetadataUpdate = false;
+    }
+
+    ALOGI("%s: Total number of cameras supported: %d", __FUNCTION__, mNumOfCamerasSupported);
 
     mConstructedOK = true;
 }
@@ -129,6 +127,7 @@ VirtualCameraFactory::VirtualCameraFactory()
 bool VirtualCameraFactory::createSocketServer(std::shared_ptr<CGVideoDecoder> decoder) {
     ALOGV("%s: E", __FUNCTION__);
 
+    mCameraSessionState = socket::CameraSessionState::kNone;
     char id[PROPERTY_VALUE_MAX] = {0};
     if (property_get("ro.boot.container.id", id, "") > 0) {
         mSocketServer =
@@ -145,7 +144,7 @@ bool VirtualCameraFactory::createSocketServer(std::shared_ptr<CGVideoDecoder> de
 
 VirtualCameraFactory::~VirtualCameraFactory() {
     if (mVirtualCameras != nullptr) {
-        for (int n = 0; n < mVirtualCameraNum; n++) {
+        for (int n = 0; n < mNumOfCamerasSupported; n++) {
             if (mVirtualCameras[n] != nullptr) {
                 delete mVirtualCameras[n];
             }
@@ -266,108 +265,28 @@ int VirtualCameraFactory::open_legacy(const struct hw_module_t *module, const ch
  * Internal API
  *******************************************************************************/
 
-void VirtualCameraFactory::createFakeCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                                            std::shared_ptr<CGVideoDecoder> decoder,
-                                            bool backCamera) {
-    int halVersion = getCameraHalVersion(backCamera);
+void VirtualCameraFactory::createVirtualRemoteCamera(
+    std::shared_ptr<CameraSocketServerThread> socket_server,
+    std::shared_ptr<CGVideoDecoder> decoder, int cameraId) {
+    ALOGV("%s: E", __FUNCTION__);
+    mVirtualCameras[cameraId] =
+        new VirtualFakeCamera3(cameraId, &HAL_MODULE_INFO_SYM.common, socket_server, decoder,
+                               std::ref(mCameraSessionState));
 
-    /*
-     * Create and initialize the fake camera, using the index into
-     * mVirtualCameras as the camera ID.
-     */
-    switch (halVersion) {
-        case 1:
-        case 2:
-            ALOGE("%s: Unuspported Camera HAL version. Only HAL version 3 is supported.", __func__);
-            break;
-        case 3: {
-            mVirtualCameras[mVirtualCameraNum] =
-                new VirtualFakeCamera3(mVirtualCameraNum, backCamera, &HAL_MODULE_INFO_SYM.common,
-                                       socket_server, decoder, std::ref(mCameraSessionState));
-        } break;
-        default:
-            ALOGE("%s: Unknown %s camera hal version requested: %d", __FUNCTION__,
-                  backCamera ? "back" : "front", halVersion);
-    }
-
-    if (mVirtualCameras[mVirtualCameraNum] == nullptr) {
+    if (mVirtualCameras[cameraId] == nullptr) {
         ALOGE("%s: Unable to instantiate fake camera class", __FUNCTION__);
     } else {
-        ALOGV("%s: %s camera device version is %d", __FUNCTION__, backCamera ? "Back" : "Front",
-              halVersion);
-        status_t res = mVirtualCameras[mVirtualCameraNum]->Initialize(nullptr, nullptr, nullptr);
+        status_t res = mVirtualCameras[cameraId]->Initialize();
         if (res == NO_ERROR) {
-            ALOGI("%s: Initialization for %s Camera ID: %d completed sucessfully..", __FUNCTION__,
-                  backCamera ? "Back" : "Front", mVirtualCameraNum);
+            ALOGI("%s: Initialization for %s Camera ID: %d completed successfully..", __FUNCTION__,
+                  gCameraFacingBack ? "Back" : "Front", cameraId);
             // Camera creation and initialization was successful.
-            mVirtualCameraNum++;
         } else {
             ALOGE("%s: Unable to initialize %s camera %d: %s (%d)", __FUNCTION__,
-                  backCamera ? "back" : "front", mVirtualCameraNum, strerror(-res), res);
-            delete mVirtualCameras[mVirtualCameraNum];
+                  gCameraFacingBack ? "back" : "front", cameraId, strerror(-res), res);
+            delete mVirtualCameras[cameraId];
         }
     }
-}
-
-void VirtualCameraFactory::waitForRemoteSfFakeCameraPropertyAvailable() {
-    /*
-     * Camera service may start running before remote-props sets
-     * remote.sf.fake_camera to any of the follwing four values:
-     * "none,front,back,both"; so we need to wait.
-     *
-     * android/camera/camera-service.c
-     * bug: 30768229
-     */
-    int numAttempts = 100;
-    char prop[PROPERTY_VALUE_MAX];
-    bool timeout = true;
-    for (int i = 0; i < numAttempts; ++i) {
-        if (property_get("remote.sf.fake_camera", prop, nullptr) != 0) {
-            timeout = false;
-            break;
-        }
-        usleep(5000);
-    }
-    if (timeout) {
-        ALOGE("timeout (%dms) waiting for property remote.sf.fake_camera to be set\n",
-              5 * numAttempts);
-    }
-}
-
-bool VirtualCameraFactory::isFakeCameraEmulationOn(bool backCamera) {
-    /*
-     * Defined by 'remote.sf.fake_camera' boot property. If the property exists,
-     * and if it's set to 'both', then fake cameras are used to emulate both
-     * sides. If it's set to 'back' or 'front', then a fake camera is used only
-     * to emulate the back or front camera, respectively.
-     */
-    char prop[PROPERTY_VALUE_MAX];
-    if ((property_get("remote.sf.fake_camera", prop, nullptr) > 0) &&
-        (!strcmp(prop, "both") || !strcmp(prop, backCamera ? "back" : "front"))) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-int VirtualCameraFactory::getCameraHalVersion(bool backCamera) {
-    /*
-     * Defined by 'remote.sf.front_camera_hal_version' and
-     * 'remote.sf.back_camera_hal_version' boot properties. If the property
-     * doesn't exist, it is assumed we are working with HAL v1.
-     */
-    char prop[PROPERTY_VALUE_MAX];
-    const char *propQuery = backCamera ? "remote.sf.back_camera_hal" : "remote.sf.front_camera_hal";
-    if (property_get(propQuery, prop, nullptr) > 0) {
-        char *propEnd = prop;
-        int val = strtol(prop, &propEnd, 10);
-        if (*propEnd == '\0') {
-            return val;
-        }
-        // Badly formatted property. It should just be a number.
-        ALOGE("remote.sf.back_camera_hal is not a number: %s", prop);
-    }
-    return 3;
 }
 
 /********************************************************************************

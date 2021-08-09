@@ -52,7 +52,7 @@ namespace android {
  */
 class VirtualFakeCamera3 : public VirtualCamera3, private Sensor::SensorListener {
 public:
-    VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_module_t *module,
+    VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                        std::shared_ptr<CameraSocketServerThread> socket_server,
                        std::shared_ptr<CGVideoDecoder> decoder,
                        std::atomic<socket::CameraSessionState> &state);
@@ -64,8 +64,7 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t Initialize(const char *device_name, const char *frame_dims,
-                                const char *facing_dir);
+    virtual status_t Initialize();
 
     /****************************************************************************
      * Camera module API and generic hardware device API implementation
@@ -134,7 +133,10 @@ private:
     void onSensorEvent(uint32_t frameNumber, Event e, nsecs_t timestamp);
 
     /** Update max supported res width and height based on capability data.*/
-    void setMaxSupportedResolution(int32_t width, int32_t height);
+    void setMaxSupportedResolution();
+
+    /** Update camera facing info based on capability data from client.*/
+    void setCameraFacingInfo();
 
     /****************************************************************************
      * Static configuration information
