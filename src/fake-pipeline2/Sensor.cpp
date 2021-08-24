@@ -335,6 +335,16 @@ bool Sensor::threadLoop() {
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         handle->clientBuf[handle->clientRevCount % 1].decoded = false;
 
+        auto decoder_dimensions = android::socket::getDimensions(mDecoder->getDecoderResolution());
+        if (mSrcHeight != decoder_dimensions.second) {
+            ALOGD("%s: Decoder Resolution has changed(%s), resize", __FUNCTION__,
+                  android::socket::resolution_to_str((uint32_t)mDecoder->getDecoderResolution()));
+            mSrcWidth = decoder_dimensions.first;
+            mSrcHeight = decoder_dimensions.second;
+            mSrcFrameSize = mSrcWidth * mSrcHeight * BPP_NV12;
+            srcWidth = mSrcWidth;
+            srcHeight = mSrcHeight;
+        }
         // Might be adding more buffers, so size isn't constant
         for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
             const StreamBuffer &b = (*mNextCapturedBuffers)[i];

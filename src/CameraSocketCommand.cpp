@@ -20,9 +20,17 @@
  * limitations under the License.
  */
 #include "CameraSocketCommand.h"
+#include <log/log.h>
 
 namespace android {
 namespace socket {
+
+enum DecoderResolution {
+    DECODER_SUPPORTED_RESOLUTION_480P = 480,
+    DECODER_SUPPORTED_RESOLUTION_720P = 720,
+    DECODER_SUPPORTED_RESOLUTION_1080P = 1080,
+};
+
 const std::unordered_map<CameraSessionState, std::string> kCameraSessionStateNames = {
     {CameraSessionState::kNone, "None"},
     {CameraSessionState::kCameraOpened, "Camera opened"},
@@ -50,9 +58,9 @@ const char* camera_type_to_str(int type) {
 
 const char* codec_type_to_str(uint32_t type) {
     switch (type) {
-        case int(android::socket::VideoCodecType::kH264):
+        case int(VideoCodecType::kH264):
             return "H264";
-        case int(android::socket::VideoCodecType::kH265):
+        case int(VideoCodecType::kH265):
             return "H265";
         default:
             return "invalid";
@@ -61,15 +69,50 @@ const char* codec_type_to_str(uint32_t type) {
 
 const char* resolution_to_str(uint32_t resolution) {
     switch (resolution) {
-        case int(android::socket::FrameResolution::k480p):
+        case int(FrameResolution::k480p):
             return "480p";
-        case int(android::socket::FrameResolution::k720p):
+        case int(FrameResolution::k720p):
             return "720p";
-        case int(android::socket::FrameResolution::k1080p):
+        case int(FrameResolution::k1080p):
             return "1080p";
         default:
             return "invalid";
     }
+}
+
+std::pair<int, int> getDimensions(FrameResolution resolution_type) {
+    std::pair<int, int> resolution;
+    if (resolution_type == FrameResolution::k480p) {
+        resolution = std::make_pair(640, 480);
+    } else if (resolution_type == FrameResolution::k720p) {
+        resolution = std::make_pair(1280, 720);
+    } else if (resolution_type == FrameResolution::k1080p) {
+        resolution = std::make_pair(1920, 1080);
+    }
+    return resolution;
+}
+
+FrameResolution detectResolution(uint32_t height) {
+    FrameResolution res;
+    switch (height) {
+        case DECODER_SUPPORTED_RESOLUTION_480P:
+            res = FrameResolution::k480p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_720P:
+            res = FrameResolution::k720p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_1080P:
+            res = FrameResolution::k1080p;
+            break;
+        default:
+            ALOGI("%s: Selected default 480p resolution!!!", __func__);
+            res = FrameResolution::k480p;
+            break;
+    }
+
+    ALOGI("%s: Resolution selected for height(%d) is %s", __func__, height,
+          resolution_to_str((uint32_t)res));
+    return res;
 }
 }  // namespace socket
 }  // namespace android
