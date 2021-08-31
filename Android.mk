@@ -117,25 +117,18 @@ camera_vhal_c_includes := external/libjpeg-turbo \
 	external/libexif \
 	external/libyuv/files/include \
 	frameworks/native/include/media/hardware \
-	device/generic/goldfish/include \
-	device/generic/goldfish-opengl/system/OpenglSystemCommon \
 	hardware/libhardware/modules/gralloc \
 	$(LOCAL_PATH)/include \
 	$(LOCAL_PATH)/$(FFMPEG_PREBUILD)/include \
 	$(call include-path-for, camera)
 
 camera_vhal_shared_libraries := \
-    libbinder \
     libexif \
     liblog \
     libutils \
     libcutils \
-    libEGL \
-    libGLESv1_CM \
-    libGLESv2 \
     libui \
     libdl \
-    libjpeg \
     libcamera_metadata \
     libhardware \
     libsync \
@@ -169,13 +162,6 @@ LOCAL_C_INCLUDES			+= ${camera_vhal_c_includes}
 LOCAL_SRC_FILES 			:= ${camera_vhal_src}
 LOCAL_SHARED_LIBRARIES 		:= ${camera_vhal_shared_libraries}
 LOCAL_STATIC_LIBRARIES 		:= ${camera_vhal_static_libraries}
-
-LOCAL_EXPORT_C_INCLUDES := \
-	$(LOCAL_PATH)/include \
-	$(LOCAL_PATH)/$(FFMPEG_PREBUILD)/include
-
-# to support platfrom build system
-LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_EXPORT_C_INCLUDES)
 
 include $(BUILD_SHARED_LIBRARY)
 
