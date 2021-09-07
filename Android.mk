@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ifeq ($(TARGET_USE_CAMERA_VHAL), true)
+# Pass BUILD_CAMERA_VHAL=true in make parameter to compile camera vHAL
+ifeq ($(BUILD_CAMERA_VHAL), true)
+
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -223,4 +225,4 @@ include $(BUILD_SHARED_LIBRARY)
 
 ######################################################
 
-endif # TARGET_USE_CAMERA_VHAL
+endif # BUILD_CAMERA_VHAL
