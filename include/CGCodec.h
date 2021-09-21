@@ -94,6 +94,7 @@ public:
         codec_type = int(android::socket::VideoCodecType::kH264);
         resolution = android::socket::FrameResolution::k480p;
         max_resolution = int(resolution);
+        device_name = NULL;
     }
 
     virtual ~CGVideoDecoder();
