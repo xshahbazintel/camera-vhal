@@ -26,6 +26,7 @@ FFMPEG_LIB_PATH := ${FFMPEG_PREBUILD}/lib
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavcodec
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB 				:= 64
 LOCAL_SRC_FILES 			:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -35,6 +36,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libswresample
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -44,6 +46,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavutil
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB 				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -53,6 +56,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavdevice
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -62,6 +66,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavfilter
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -71,6 +76,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavformat
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -80,6 +86,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libswscale
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -147,7 +154,7 @@ camera_vhal_static_libraries := \
 camera_vhal_module_relative_path := hw
 camera_vhal_cflags				 := -fno-short-enums -DREMOTE_HARDWARE
 camera_vhal_cflags				 += -Wno-unused-parameter -Wno-missing-field-initializers
-camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas
+camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas -Wno-implicit-fallthrough
 
 ifeq ($(BOARD_USES_GRALLOC1), true)
 camera_vhal_cflags += -DUSE_GRALLOC1

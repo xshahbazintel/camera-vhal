@@ -521,7 +521,8 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
                 newStream->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
                 ALOGE("%s: GRALLOC0", __FUNCTION__);
 #else
-                ALOGE("%s: GRALLOC1", __FUNCTION__);
+                newStream->usage |= GRALLOC_USAGE_SW_WRITE_OFTEN;
+                ALOGE("%s: GRALLOC1 GRALLOC_USAGE_SW_WRITE_OFTEN", __FUNCTION__);
 #endif
                 break;
             case CAMERA3_STREAM_INPUT:
