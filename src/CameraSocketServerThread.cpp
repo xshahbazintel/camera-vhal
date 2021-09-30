@@ -56,6 +56,7 @@ int32_t gMaxSupportedHeight;
 int32_t gCameraMaxWidth;
 int32_t gCameraMaxHeight;
 
+uint32_t gCodecType;
 uint32_t gCameraSensorOrientation;
 bool gCameraFacingBack;
 
@@ -347,18 +348,14 @@ bool CameraSocketServerThread::configureCapabilities() {
                   __FUNCTION__);
         }
 
-        if (val_client_cap[i].validResolution && val_client_cap[i].validCodecType) {
-            // Store codec type and resolution based on remote client capability info.
-            mVideoDecoder->setCodecTypeAndResolution(camera_info[i].codec_type,
-                                                     camera_info[i].resolution);
+        if (val_client_cap[i].validCodecType) {
+            // Set codec type based on remote client capability info.
+            gCodecType = camera_info[i].codec_type;
         } else {
             // Set default codec type if receive invalid capability info from client.
             // Default codec type would be H264.
-            mVideoDecoder->setCodecTypeAndResolution((uint32_t)VideoCodecType::kH264,
-                                                     (uint32_t)FrameResolution::k480p);
-            ALOGE(LOG_TAG
-                  "%s: Not received valid resolution and codec type, "
-                  "hence selected 480p and H264 as default",
+            gCodecType = (uint32_t)VideoCodecType::kH264;
+            ALOGE(LOG_TAG "%s: Not received valid codec type, hence selected H264 as default",
                   __FUNCTION__);
         }
 

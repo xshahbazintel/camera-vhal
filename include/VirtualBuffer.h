@@ -31,6 +31,9 @@ extern int32_t gCameraMaxHeight;
 extern int32_t gSrcWidth;
 extern int32_t gSrcHeight;
 
+// Input Codec type info based on client device request.
+extern uint32_t gCodecType;
+
 // Orientation info of the image sensor based on client device request.
 extern uint32_t gCameraSensorOrientation;
 

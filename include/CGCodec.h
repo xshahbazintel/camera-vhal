@@ -93,7 +93,6 @@ public:
     CGVideoDecoder() {
         codec_type = int(android::socket::VideoCodecType::kH264);
         resolution = android::socket::FrameResolution::k480p;
-        max_resolution = int(resolution);
         device_name = NULL;
     }
 
@@ -111,8 +110,8 @@ public:
      * @param device_name       the string of hardware acclerator device, such as "vaapi"
      * @param extra_hw_frames   allocate extra frames for hardware acclerator when decoding
      */
-    int init(android::socket::FrameResolution resolution_type, const char *device_name = nullptr,
-             int extra_hw_frames = 0);
+    int init(android::socket::FrameResolution resolution, uint32_t codec_type,
+             const char *device_name = nullptr, int extra_hw_frames = 0);
 
     /**
      * Send a piece of ES stream data to decoder, the data must have a padding with a lengh
@@ -144,9 +143,6 @@ public:
      */
     int destroy();
 
-    void setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution);
-    uint32_t getCodecType();
-
 private:
     CGDecContex m_decode_ctx;        ///<! cg decoder internal context
     CGHWAccelContex m_hw_accel_ctx;  ///<! hw decoding accelerator context
@@ -158,7 +154,6 @@ private:
     CGVideoDecoder(const CGVideoDecoder &cg_video_decoder);
     CGVideoDecoder &operator=(const CGVideoDecoder &) { return *this; }
     uint32_t codec_type;
-    uint32_t max_resolution;
     android::socket::FrameResolution resolution;
     const char *device_name;
 };

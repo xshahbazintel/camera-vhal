@@ -203,23 +203,21 @@ CGVideoDecoder::~CGVideoDecoder() { destroy(); }
 
 bool CGVideoDecoder::can_decode() const { return decoder_ready; }
 
-void CGVideoDecoder::setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution) {
-    this->codec_type = codec_type;
-    this->max_resolution = resolution;
-}
-
-uint32_t CGVideoDecoder::getCodecType() { return codec_type; }
-
-int CGVideoDecoder::init(android::socket::FrameResolution resolution_type, const char *device_name,
-                         int extra_hw_frames) {
+int CGVideoDecoder::init(android::socket::FrameResolution resolution, uint32_t codec_type,
+                         const char *device_name, int extra_hw_frames) {
+    ALOGVV("%s E", __func__);
     std::lock_guard<std::recursive_mutex> decode_push_lock(push_lock);
     std::lock_guard<std::recursive_mutex> decode_pull_lock(pull_lock);
     decoder_ready = false;
-    this->device_name = device_name;
-    this->resolution = resolution_type;
-    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(this->resolution)));
 
-    AVCodecID codec_id = (this->codec_type == int(android::socket::VideoCodecType::kH265))
+    // Update current init parameters which would be used during re-init.
+    this->codec_type = codec_type;
+    this->resolution = resolution;
+    this->device_name = device_name;
+
+    m_decode_ctx = CGDecContex(new DecodeContext(int(codec_type), int(resolution)));
+
+    AVCodecID codec_id = (codec_type == int(android::socket::VideoCodecType::kH265))
                              ? AV_CODEC_ID_H265
                              : AV_CODEC_ID_H264;
 
@@ -311,8 +309,8 @@ int CGVideoDecoder::decode(const uint8_t *data, int data_size) {
                 ALOGI("%s re-init", __func__);
                 flush_decoder();
                 destroy();
-                if (init((android::socket::FrameResolution)this->resolution, this->device_name, 0) <
-                    0) {
+                if (init((android::socket::FrameResolution)this->resolution, this->codec_type,
+                         this->device_name, 0) < 0) {
                     ALOGE("%s re-init failed. %s decoding", __func__, device_name);
                     return -1;
                 } else {

@@ -135,6 +135,9 @@ private:
     /** Update max supported res width and height based on capability data.*/
     void setMaxSupportedResolution();
 
+    /** Update input codec type for each camera based on capability data.*/
+    void setInputCodecType();
+
     /** Update camera facing info based on capability data from client.*/
     void setCameraFacingInfo();
 
@@ -172,6 +175,7 @@ private:
     uint32_t mSrcWidth;
     uint32_t mSrcHeight;
 
+    uint32_t mCodecType;
     uint32_t mDecoderResolution;
     bool mDecoderInitDone;
 

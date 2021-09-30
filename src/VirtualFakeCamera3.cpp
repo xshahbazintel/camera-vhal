@@ -119,6 +119,7 @@ VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
     mSensorHeight = 0;
     mSrcWidth = 0;
     mSrcHeight = 0;
+    mCodecType = 0;
     mDecoderResolution = 0;
     mFacingBack = false;
     mDecoderInitDone = false;
@@ -198,7 +199,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd.version = CAMERA_VHAL_VERSION_2;
     config_cmd.cmd = cmd;
     config_cmd.config.cameraId = mCameraID;
-    config_cmd.config.codec_type = mDecoder->getCodecType();
+    config_cmd.config.codec_type = mCodecType;
     config_cmd.config.resolution = mDecoderResolution;
 
     camera_packet_t *config_cmd_packet = NULL;
@@ -242,8 +243,8 @@ status_t VirtualFakeCamera3::connectCamera() {
 
         mDecoderResolution = setDecoderResolution(mSrcHeight);
         // initialize decoder
-        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, device_name, 0) <
-            0) {
+        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, mCodecType,
+                           device_name, 0) < 0) {
             ALOGE("%s VideoDecoder init failed. %s decoding", __func__,
                   !device_name ? "SW" : device_name);
         } else {
@@ -1311,6 +1312,13 @@ void VirtualFakeCamera3::setCameraFacingInfo() {
     ALOGI("%s: Camera ID %d is set as %s facing", __func__, mCameraID,
           mFacingBack ? "Back" : "Front");
 }
+
+void VirtualFakeCamera3::setInputCodecType() {
+    mCodecType = gCodecType;
+    ALOGI("%s: Selected %s Codec_type for Camera %d", __func__, codec_type_to_str(mCodecType),
+          mCameraID);
+}
+
 void VirtualFakeCamera3::setMaxSupportedResolution() {
     // Updating max sensor supported resolution based on client camera.
     // This would be used in sensor related operations and metadata info.
@@ -1330,6 +1338,8 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     // Setting the max supported Camera resolution.
     setMaxSupportedResolution();
+    // set codec type of the input frame.
+    setInputCodecType();
     // Set camera facing info.
     setCameraFacingInfo();
 
