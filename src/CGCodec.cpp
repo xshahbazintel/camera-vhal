@@ -75,7 +75,7 @@ int CGVideoFrame::copy_to_buffer(uint8_t *out_buffer, int *size) {
 //////// @class DecodeContext ////////
 
 struct DecodeContext {
-    DecodeContext(int codec_type);
+    DecodeContext(int codec_type, int resolution_type);
     virtual ~DecodeContext() = default;
 
     AVCodecParserContext *parser;
@@ -87,13 +87,23 @@ struct DecodeContext {
 
     // parameters by configuration
     int codec_type;
+    std::pair<int, int> resolution;
 };
 
-DecodeContext::DecodeContext(int codec_type) : codec_type(codec_type) {
+DecodeContext::DecodeContext(int codec_type, int resolution_type) : codec_type(codec_type) {
     parser = nullptr;
     avcodec_ctx = nullptr;
     packet = nullptr;
-    ALOGD("Config decode type:%d \n", codec_type);
+    if (resolution_type == int(android::socket::FrameResolution::k480p)) {
+        resolution = std::make_pair(640, 480);
+    } else if (resolution_type == int(android::socket::FrameResolution::k720p)) {
+        resolution = std::make_pair(1280, 720);
+    } else if (resolution_type == int(android::socket::FrameResolution::k1080p)) {
+        resolution = std::make_pair(1920, 1080);
+    }
+
+    ALOGD("Config decode type:%d width:%d height:%d\n", codec_type, resolution.first,
+          resolution.second);
 }
 
 void DecodeContextDeleter::operator()(DecodeContext *p) { delete p; }
@@ -207,7 +217,7 @@ int CGVideoDecoder::init(android::socket::FrameResolution resolution_type, const
     decoder_ready = false;
     this->device_name = device_name;
     this->resolution = resolution_type;
-    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type)));
+    m_decode_ctx = CGDecContex(new DecodeContext(int(this->codec_type), int(this->resolution)));
 
     AVCodecID codec_id = (this->codec_type == int(android::socket::VideoCodecType::kH265))
                              ? AV_CODEC_ID_H265
@@ -348,20 +358,17 @@ int CGVideoDecoder::decode_one_frame(const AVPacket *pkt) {
             return -1;
         }
         // video info sanity check
-        auto decoder_dimensions = android::socket::getDimensions(this->resolution);
-        if (frame->width != decoder_dimensions.first ||
-            frame->height != decoder_dimensions.second ||
+        if (frame->width != m_decode_ctx->resolution.first ||
+            frame->height != m_decode_ctx->resolution.second ||
             (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_VAAPI)) {
             ALOGW("%s: Camera input res from client is %dx%d, but decoder initialized with %dx%d",
-                  __func__, frame->width, frame->height, decoder_dimensions.first,
-                  decoder_dimensions.second);
-            if (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_VAAPI) {
+                  __func__, frame->width, frame->height, m_decode_ctx->resolution.first,
+                  m_decode_ctx->resolution.second);
+            if (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_VAAPI)
                 ALOGW("%s: Camera input frame format %d is not matching with Decoder format",
                       __func__, frame->format);
-                av_frame_free(&frame);
-                return -1;
-            }
-            this->resolution = android::socket::detectResolution(frame->height);
+            av_frame_free(&frame);
+            return -1;
         }
 
         if (m_hw_accel_ctx.get() && m_hw_accel_ctx->is_hw_accel_valid()) {

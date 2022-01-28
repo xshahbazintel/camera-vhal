@@ -99,8 +99,6 @@ typedef struct _camera_packet {
 const char* camera_type_to_str(int type);
 const char* codec_type_to_str(uint32_t type);
 const char* resolution_to_str(uint32_t resolution);
-std::pair<int, int> getDimensions(FrameResolution resolution_type);
-FrameResolution detectResolution(uint32_t height);
 }  // namespace socket
 }  // namespace android
 

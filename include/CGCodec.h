@@ -146,7 +146,6 @@ public:
 
     void setCodecTypeAndResolution(uint32_t codec_type, uint32_t resolution);
     uint32_t getCodecType();
-    android::socket::FrameResolution getDecoderResolution() { return resolution; }
 
 private:
     CGDecContex m_decode_ctx;        ///<! cg decoder internal context

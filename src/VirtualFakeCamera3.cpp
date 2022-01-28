@@ -169,6 +169,28 @@ status_t VirtualFakeCamera3::openCamera(hw_device_t **device) {
     return VirtualCamera3::openCamera(device);
 }
 
+uint32_t VirtualFakeCamera3::setDecoderResolution(uint32_t resolution) {
+    ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
+    uint32_t res = 0;
+    switch (resolution) {
+        case DECODER_SUPPORTED_RESOLUTION_480P:
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_720P:
+            res = (uint32_t)FrameResolution::k720p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_1080P:
+            res = (uint32_t)FrameResolution::k1080p;
+            break;
+        default:
+            ALOGI("%s: Selected default 480p resolution!!!", __func__);
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+    }
+
+    ALOGI("%s: Resolution selected for decoder init is %s", __func__, resolution_to_str(res));
+    return res;
+}
 status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
@@ -219,7 +241,7 @@ status_t VirtualFakeCamera3::connectCamera() {
     if (gIsInFrameH264) {
         const char *device_name = gUseVaapi ? "vaapi" : nullptr;
 
-        mDecoderResolution = (uint32_t)android::socket::detectResolution(mSrcHeight);
+        mDecoderResolution = setDecoderResolution(mSrcHeight);
         // initialize decoder
         if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, device_name, 0) <
             0) {
