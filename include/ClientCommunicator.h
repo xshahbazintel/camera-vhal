@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef CAMERA_SOCKET_SERVER_H
-#define CAMERA_SOCKET_SERVER_H
+#ifndef CLIENT_COMMUNICATOR_H
+#define CLIENT_COMMUNICATOR_H
 
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -32,37 +32,41 @@
 #include <thread>
 #include "CGCodec.h"
 #include "CameraSocketCommand.h"
+#include "ConnectionsListener.h"
+#include "VirtualBuffer.h"
 
 namespace android {
 
 class VirtualCameraFactory;
-class CameraSocketServerThread : public Thread {
+class ClientCommunicator : public Thread {
 public:
-    CameraSocketServerThread(std::string suffix, std::shared_ptr<CGVideoDecoder> decoder,
-                             std::atomic<socket::CameraSessionState> &state);
-    ~CameraSocketServerThread();
+    ClientCommunicator(std::shared_ptr<ConnectionsListener> listener,
+                             std::shared_ptr<CGVideoDecoder> decoder,
+                             int client_id);
+    ~ClientCommunicator();
 
     virtual void requestExit();
     virtual status_t requestExitAndWait();
-    int getClientFd();
+    int getClientId();
+    status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size);
+    std::atomic<socket::CameraSessionState> mCameraSessionState;
+    std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
 private:
     virtual status_t readyToRun();
     virtual bool threadLoop() override;
 
     bool configureCapabilities();
-    void setCameraResolution(uint32_t resolution);
-    void setCameraMaxSupportedResolution(int32_t width, int32_t height);
 
     Mutex mMutex;
+    static Mutex sMutex; //Synchronize across threads
     bool mRunning;  // guarding only when it's important
-    int mSocketServerFd = -1;
-    std::string mSocketPath;
+    int mClientId;
     int mClientFd = -1;
     int mNumOfCamerasRequested;  // Number of cameras requested to support by client.
 
+    std::shared_ptr<ConnectionsListener> mListener;
     std::shared_ptr<CGVideoDecoder> mVideoDecoder;
-    std::atomic<socket::CameraSessionState> &mCameraSessionState;
 
     // maximum size of a H264 packet in any aggregation packet is 65535 bytes.
     // Source: https://tools.ietf.org/html/rfc6184#page-13

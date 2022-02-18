@@ -57,7 +57,9 @@ status_t VirtualBaseCamera::getCameraInfo(struct camera_info *info) {
     } else {
         info->static_camera_characteristics = (camera_metadata_t *)0xcafef00d;
     }
-
+    info->resource_cost = 100;
+    info->conflicting_devices = mConflictingDevicesAsChars.data();
+    info->conflicting_devices_length = mConflictingDevicesAsChars.size();
     return NO_ERROR;
 }
 
@@ -65,6 +67,17 @@ status_t VirtualBaseCamera::setCameraFD(int socketFd) {
     mCameraSocketFD = socketFd;
     ALOGV("%s mCameraSocketFD = %d", __FUNCTION__, mCameraSocketFD);
     return NO_ERROR;
+}
+
+
+void VirtualBaseCamera::setConflictingCameras(int cameraId) {
+    for (std::string id : mConflictingDevices) {
+        //Already added earlier.
+        if (id == std::to_string(cameraId))
+            return;
+    }
+    mConflictingDevices.emplace_back(std::to_string(cameraId));
+    mConflictingDevicesAsChars.push_back(mConflictingDevices.back().data());
 }
 
 status_t VirtualBaseCamera::cleanCameraFD(int socketFd) {

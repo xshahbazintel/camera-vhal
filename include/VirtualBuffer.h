@@ -11,52 +11,14 @@ extern bool gIsInFrameI420;
 extern bool gIsInFrameH264;
 extern bool gUseVaapi;
 
-// Max no of cameras supported based on client device request.
-extern uint32_t gMaxNumOfCamerasSupported;
-
-// Max supported res width and height out of all cameras.
-// Used for input buffer allocation.
-extern int32_t gMaxSupportedWidth;
-extern int32_t gMaxSupportedHeight;
-
-// Max supported res width and height of each camera.
-// This would be vary for each camera based on its
-// capability requested by client. And used for metadata updation
-// during boot time.
-extern int32_t gCameraMaxWidth;
-extern int32_t gCameraMaxHeight;
-
-// Camera input res width and height during running
-// condition. It would vary based on app's request.
-extern int32_t gSrcWidth;
-extern int32_t gSrcHeight;
-
-// Input Codec type info based on client device request.
-extern uint32_t gCodecType;
-
-// Orientation info of the image sensor based on client device request.
-extern uint32_t gCameraSensorOrientation;
-
-// Camera facing as either back or front based on client device request.
-// True for back and false for front camera always.
-extern bool gCameraFacingBack;
-
-// Indicate client capability info received successfully when it is true.
-extern bool gCapabilityInfoReceived;
-
-// Status of metadata update, which helps to sync and update
-// each metadata for each camera seperately.
-extern bool gStartMetadataUpdate;
-extern bool gDoneMetadataUpdate;
-
 enum class VideoBufferType {
     kI420,
     kARGB,
 };
 
 struct Resolution {
-    int width = gMaxSupportedWidth;
-    int height = gMaxSupportedHeight;
+    int width = 0;
+    int height = 0;
 };
 /// Video buffer and its information
 struct VideoBuffer {
@@ -66,21 +28,17 @@ struct VideoBuffer {
     Resolution resolution;
     // Buffer type
     VideoBufferType type = VideoBufferType::kARGB;
+    VideoBuffer() {}
     ~VideoBuffer() {}
+    VideoBuffer(int width, int height)
+    : resolution{width, height}{
+    }
 
-    // To reset allocated buffer.
-    void reset() {
+    // To clear buffer based on current resolution.
+    void clearBuffer() {
         std::fill(buffer, buffer + resolution.width * resolution.height, 0x10);
         uint8_t* uv_offset = buffer + resolution.width * resolution.height;
         std::fill(uv_offset, uv_offset + (resolution.width * resolution.height) / 2, 0x80);
-        decoded = false;
-    }
-
-    // To clear used buffer based on current resolution.
-    void clearBuffer() {
-        std::fill(buffer, buffer + gSrcWidth * gSrcHeight, 0x10);
-        uint8_t* uv_offset = buffer + gSrcWidth * gSrcHeight;
-        std::fill(uv_offset, uv_offset + (gSrcWidth * gSrcHeight) / 2, 0x80);
         decoded = false;
     }
 
@@ -89,49 +47,27 @@ struct VideoBuffer {
 
 class ClientVideoBuffer {
 public:
-    static ClientVideoBuffer* ic_instance;
 
-    struct VideoBuffer clientBuf[1];
+    struct VideoBuffer clientBuf;
     unsigned int clientRevCount = 0;
     unsigned int clientUsedCount = 0;
 
     size_t receivedFrameNo = 0;
     size_t decodedFrameNo = 0;
 
-    static ClientVideoBuffer* getClientInstance() {
-        if (ic_instance == NULL) {
-            ic_instance = new ClientVideoBuffer();
-        }
-        return ic_instance;
-    }
-
-    ClientVideoBuffer() {
-        for (int i = 0; i < 1; i++) {
-            clientBuf[i].buffer = new uint8_t[clientBuf[i].resolution.width *
-                                              clientBuf[i].resolution.height * BPP_NV12];
-        }
+    ClientVideoBuffer(int width, int height)
+    : clientBuf(width, height) {
+        clientBuf.buffer = new uint8_t[width * height * BPP_NV12];
         clientRevCount = 0;
         clientUsedCount = 0;
     }
 
     ~ClientVideoBuffer() {
-        for (int i = 0; i < 1; i++) {
-            delete[] clientBuf[i].buffer;
-        }
-    }
-
-    void reset() {
-        for (int i = 0; i < 1; i++) {
-            clientBuf[i].reset();
-        }
-        clientRevCount = clientUsedCount = 0;
-        receivedFrameNo = decodedFrameNo = 0;
+        delete[] clientBuf.buffer;
     }
 
     void clearBuffer() {
-        for (int i = 0; i < 1; i++) {
-            clientBuf[i].clearBuffer();
-        }
+        clientBuf.clearBuffer();
         clientRevCount = clientUsedCount = 0;
         receivedFrameNo = decodedFrameNo = 0;
     }

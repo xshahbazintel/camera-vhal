@@ -19,6 +19,7 @@
 
 #include <hardware/camera_common.h>
 #include <utils/Errors.h>
+#include <vector>
 
 namespace android {
 
@@ -83,6 +84,7 @@ public:
 
     virtual status_t setCameraFD(int socketFd);
     virtual status_t cleanCameraFD(int socketFd);
+    void setConflictingCameras(int cameraId);
 
 protected:
     /* Fixed camera information for camera2 devices. Must be valid to access if
@@ -96,6 +98,8 @@ protected:
 private:
     /* Version of the camera device HAL implemented by this camera */
     int mCameraDeviceVersion;
+    std::vector<std::string> mConflictingDevices;
+    std::vector<char*> mConflictingDevicesAsChars;
 };
 
 } /* namespace android */

@@ -22,9 +22,10 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "VirtualCamera_Factory"
 
+#include "VirtualBuffer.h"
 #include "VirtualCameraFactory.h"
 #include "VirtualFakeCamera3.h"
-#include "CameraSocketServerThread.h"
+#include "ClientCommunicator.h"
 #include "CGCodec.h"
 
 #include <log/log.h>
@@ -56,94 +57,51 @@ void VirtualCameraFactory::readSystemProperties() {
     property_get("ro.vendor.camera.decode.vaapi", prop_val, "false");
     gUseVaapi = !strcmp(prop_val, "true");
 
-    ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, gUseVaapi: %d", __func__, gIsInFrameH264,
-          gIsInFrameI420, gUseVaapi);
+    mNumClients = 1;
+    ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, gUseVaapi: %d, mNumClients: %d",
+          __func__, gIsInFrameH264, gIsInFrameI420, gUseVaapi, mNumClients);
 }
 
 VirtualCameraFactory::VirtualCameraFactory()
-    : mVirtualCameras(nullptr),
-      mNumOfCamerasSupported(0),
-      mConstructedOK(false),
-      mCallbacks(nullptr) {
+    : mConstructedOK(false),
+      mCallbacks(nullptr),
+      mNumClients(1) {
     readSystemProperties();
 
-    if (gIsInFrameH264) {
-        // Create decoder to decode H264/H265 input frames.
-        ALOGV("%s Creating decoder.", __func__);
-        mDecoder = std::make_shared<CGVideoDecoder>();
-    }
+    // Create socket listener which accepts client connections.
+    createSocketListener();
+    ALOGV("%s socket listener created: ", __func__);
 
-    // Create socket server which is used to communicate with client device.
-    createSocketServer(mDecoder);
-    ALOGV("%s socket server created: ", __func__);
-
-    // Check whether capability info is received or not and
-    // wait until receive capability info from client HW.
-    // Number of supported cameras and its corresponding
-    // metadata info would be updated always based on this
-    // capability info from the remote client HW.
-    while (!gCapabilityInfoReceived) {
-        ALOGV("%s: waiting for the capability info...", __func__);
-        // 1ms sleep for this thread.
-        std::this_thread::sleep_for(1ms);
-    }
-
-    ALOGV("%s: Received capability info from remote client device", __FUNCTION__);
-
-    // Update number of cameras requested from remote client HW.
-    mNumOfCamerasSupported = gMaxNumOfCamerasSupported;
-
-    // TODO: This might be removed when dynamic re-negotiation is supported in future.
-    if (mNumOfCamerasSupported == 0) {
-        ALOGI("%s: No camera device to support, hence no need to create vHAL", __func__);
-        if (mSocketServer) {
-            mSocketServer->requestExit();
-            mSocketServer->join();
-        }
-        return;
-    }
-
-    // Allocate space for each cameras requested.
-    mVirtualCameras = new VirtualBaseCamera *[mNumOfCamerasSupported];
-    if (mVirtualCameras == nullptr) {
-        ALOGE("%s: Unable to allocate virtual camera array", __FUNCTION__);
-        return;
-    } else {
-        for (int n = 0; n < mNumOfCamerasSupported; n++) {
-            mVirtualCameras[n] = nullptr;
-        }
-    }
-
+    mClientCameras.resize(mNumClients);
+    mClientThreads.resize(mNumClients);
     // Create cameras based on the client request.
-    for (int cameraId = 0; cameraId < mNumOfCamerasSupported; cameraId++) {
-        // Wait until start updating metadata for each camera.
-        while (!gStartMetadataUpdate) {
-            ALOGV("%s: wait until start updating metadata for a single camera", __func__);
-            // 200us sleep for this thread.
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
+    for(int id = 0; id < mNumClients; id++)
+    {
+        // NV12 Decoder
+        std::shared_ptr<CGVideoDecoder> decoder;
+        if (gIsInFrameH264) {
+            // create decoder
+            ALOGV("%s Creating decoder.", __func__);
+            decoder = std::make_shared<CGVideoDecoder>();
         }
-
-        createVirtualRemoteCamera(mSocketServer, mDecoder, cameraId);
-        // Created a camera successfully hence update the status.
-        gDoneMetadataUpdate = true;
-        gStartMetadataUpdate = false;
+        auto client_thread = std::make_shared<ClientCommunicator>(mSocketListener, decoder, id);
+        mClientThreads[id] = client_thread;
+        std::string thread_name = "CameraSocketConnectionThread_" + std::to_string(id);
+        client_thread->run(thread_name.c_str());
     }
 
-    ALOGI("%s: Total number of cameras supported: %d", __FUNCTION__, mNumOfCamerasSupported);
+    ALOGI("%s: Cameras will be initialized dynamically when client connects", __FUNCTION__);
 
     mConstructedOK = true;
 }
 
-bool VirtualCameraFactory::createSocketServer(std::shared_ptr<CGVideoDecoder> decoder) {
+bool VirtualCameraFactory::createSocketListener() {
     ALOGV("%s: E", __FUNCTION__);
 
-    mCameraSessionState = socket::CameraSessionState::kNone;
     char id[PROPERTY_VALUE_MAX] = {0};
     if (property_get("ro.boot.container.id", id, "") > 0) {
-        mSocketServer =
-            std::make_shared<CameraSocketServerThread>(id, decoder, std::ref(mCameraSessionState));
-
-        mSocketServer->run("FrontBackCameraSocketServerThread");
+        mSocketListener = std::make_shared<ConnectionsListener>(id);
+        mSocketListener->run("ConnectionsListener");
     } else
         ALOGE("%s: FATAL: container id is not set!!", __func__);
 
@@ -153,18 +111,15 @@ bool VirtualCameraFactory::createSocketServer(std::shared_ptr<CGVideoDecoder> de
 }
 
 VirtualCameraFactory::~VirtualCameraFactory() {
-    if (mVirtualCameras != nullptr) {
-        for (int n = 0; n < mNumOfCamerasSupported; n++) {
-            if (mVirtualCameras[n] != nullptr) {
-                delete mVirtualCameras[n];
-            }
+    for (auto entry : mVirtualCameras) {
+        if (entry != nullptr) {
+            delete entry;
         }
-        delete[] mVirtualCameras;
     }
 
-    if (mSocketServer) {
-        mSocketServer->requestExit();
-        mSocketServer->join();
+    if (mSocketListener) {
+        mSocketListener->requestExit();
+        mSocketListener->join();
     }
 }
 
@@ -275,28 +230,38 @@ int VirtualCameraFactory::open_legacy(const struct hw_module_t *module, const ch
  * Internal API
  *******************************************************************************/
 
-void VirtualCameraFactory::createVirtualRemoteCamera(
-    std::shared_ptr<CameraSocketServerThread> socket_server,
-    std::shared_ptr<CGVideoDecoder> decoder, int cameraId) {
+bool VirtualCameraFactory::createVirtualRemoteCamera(
+    std::shared_ptr<CGVideoDecoder> decoder,
+    int clientId,
+    android::socket::camera_info_t cameraInfo) {
     ALOGV("%s: E", __FUNCTION__);
-    mVirtualCameras[cameraId] =
-        new VirtualFakeCamera3(cameraId, &HAL_MODULE_INFO_SYM.common, socket_server, decoder,
-                               std::ref(mCameraSessionState));
+    int cameraId = mVirtualCameras.size();
+    std::shared_ptr<ClientCommunicator> client_thread = mClientThreads[clientId];
+    mVirtualCameras.push_back(
+        new VirtualFakeCamera3(cameraId, &HAL_MODULE_INFO_SYM.common, client_thread, decoder, cameraInfo));
 
     if (mVirtualCameras[cameraId] == nullptr) {
         ALOGE("%s: Unable to instantiate fake camera class", __FUNCTION__);
     } else {
+        for (int id : mClientCameras[clientId]) {
+            mVirtualCameras[cameraId]->setConflictingCameras(id);
+            mVirtualCameras[id]->setConflictingCameras(cameraId);
+        }
+        mClientCameras[clientId].push_back(cameraId);
         status_t res = mVirtualCameras[cameraId]->Initialize();
         if (res == NO_ERROR) {
-            ALOGI("%s: Initialization for %s Camera ID: %d completed successfully..", __FUNCTION__,
-                  gCameraFacingBack ? "Back" : "Front", cameraId);
+            ALOGI("%s: Initialization for Camera ID: %d completed successfully..", __FUNCTION__,
+                  cameraId);
             // Camera creation and initialization was successful.
+            mCallbacks->camera_device_status_change(mCallbacks, cameraId, CAMERA_DEVICE_STATUS_PRESENT);
+            return true;
         } else {
-            ALOGE("%s: Unable to initialize %s camera %d: %s (%d)", __FUNCTION__,
-                  gCameraFacingBack ? "back" : "front", cameraId, strerror(-res), res);
+            ALOGE("%s: Unable to initialize camera %d: %s (%d)", __FUNCTION__,
+                  cameraId, strerror(-res), res);
             delete mVirtualCameras[cameraId];
         }
     }
+    return false;
 }
 
 /********************************************************************************

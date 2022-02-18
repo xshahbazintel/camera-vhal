@@ -80,6 +80,7 @@
 #include "utils/Timers.h"
 #include "CGCodec.h"
 #include "CGLog.h"
+#include "VirtualBuffer.h"
 #include <mutex>
 #include <future>
 #include <array>
@@ -95,7 +96,9 @@ class Sensor : private Thread, public virtual RefBase {
 public:
     // width: Max width of client camera HW.
     // height: Max height of client camera HW.
-    Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder = nullptr);
+    Sensor(uint32_t camera_id, uint32_t width, uint32_t height,
+           std::shared_ptr<CGVideoDecoder> decoder = nullptr,
+           std::shared_ptr<ClientVideoBuffer> cameraBuffer = nullptr);
     ~Sensor();
 
     /*
@@ -275,6 +278,7 @@ private:
     std::array<uint8_t, buffSize> mDstJpegBuf = {};
 
     std::shared_ptr<CGVideoDecoder> mDecoder = {};
+    std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
 };
 }  // namespace android

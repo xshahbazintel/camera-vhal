@@ -53,9 +53,6 @@ using namespace chrono_literals;
 
 namespace android {
 
-int32_t gSrcWidth;
-int32_t gSrcHeight;
-
 using namespace socket;
 /**
  * Constants for camera capabilities
@@ -94,13 +91,13 @@ const float VirtualFakeCamera3::kExposureWanderMax = 1;
  */
 
 VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
-                                       std::shared_ptr<CameraSocketServerThread> socket_server,
+                                       std::shared_ptr<ClientCommunicator> client_thread,
                                        std::shared_ptr<CGVideoDecoder> decoder,
-                                       std::atomic<CameraSessionState> &state)
+                                       android::socket::camera_info_t clientCameraInfo)
     : VirtualCamera3(cameraId, module),
-      mSocketServer(socket_server),
+      mClientThread(client_thread),
       mDecoder(decoder),
-      mCameraSessionState{state} {
+      mClientCameraInfo(clientCameraInfo) {
     ALOGI("Constructing virtual fake camera 3: for ID %d", mCameraID);
 
     mControlMode = ANDROID_CONTROL_MODE_AUTO;
@@ -193,6 +190,7 @@ uint32_t VirtualFakeCamera3::setDecoderResolution(uint32_t resolution) {
 status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
+    static std::future<bool> cmd_interval;
     status_t status = INVALID_OPERATION;
     size_t config_cmd_packet_size = sizeof(camera_header_t) + sizeof(camera_config_cmd_t);
     camera_config_cmd_t config_cmd = {};
@@ -204,11 +202,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
 
     camera_packet_t *config_cmd_packet = NULL;
 
-    int client_fd = mSocketServer->getClientFd();
-    if (client_fd < 0) {
-        ALOGE("%s: We're not connected to client yet!", __FUNCTION__);
-        return status;
-    }
+    int client_id = mClientThread->getClientId();
 
     config_cmd_packet = (camera_packet_t *)malloc(config_cmd_packet_size);
     if (config_cmd_packet == NULL) {
@@ -220,15 +214,20 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd_packet->header.size = sizeof(camera_config_cmd_t);
     memcpy(config_cmd_packet->payload, &config_cmd, sizeof(camera_config_cmd_t));
 
-    ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
-    if (send(client_fd, config_cmd_packet, config_cmd_packet_size, 0) < 0) {
-        ALOGE(LOG_TAG "%s: Failed to send Camera %s command to client, err %s ", __FUNCTION__,
-              (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", strerror(errno));
+    // TODO: Remove this once OWT client is able to handle back to back open/close commands.
+    if (cmd_interval.valid()) { cmd_interval.wait(); }
+    cmd_interval = std::async(std::launch::async, [](){
+        std::this_thread::sleep_for(2500ms);
+        return true;
+    });
+    ALOGI("%s: Camera client Id(%d) Sending config cmd %s", __FUNCTION__, client_id,
+          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera");
+    if (!mClientThread->sendCommandToClient(config_cmd_packet, config_cmd_packet_size)) {
         goto out;
     }
 
-    ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__,
-          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", client_fd);
+    ALOGI("%s: Sent cmd %s to client Id %d!", __FUNCTION__,
+          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", client_id);
     status = OK;
 out:
     free(config_cmd_packet);
@@ -261,10 +260,17 @@ status_t VirtualFakeCamera3::connectCamera() {
         return ret;
     }
     ALOGI("%s Called sendCommandToClient", __func__);
-    mCameraSessionState = CameraSessionState::kCameraOpened;
+    mClientThread->mCameraSessionState = CameraSessionState::kCameraOpened;
 
+
+    // Fill the input buffer with black frame to avoid green frame
+    // while changing the resolution in each request.
+    mCameraBuffer = std::make_shared<ClientVideoBuffer>(mSrcWidth, mSrcHeight);
+    mCameraBuffer->clearBuffer();
+    mClientThread->mCameraBuffer = mCameraBuffer;
+    ALOGI("%s: Camera input buffers are cleared", __func__);
     // create sensor who gets decoded frames and forwards them to framework
-    mSensor = new Sensor(mCameraID, mSrcWidth, mSrcHeight, mDecoder);
+    mSensor = new Sensor(mCameraID, mSrcWidth, mSrcHeight, mDecoder, mCameraBuffer);
     mSensor->setSensorListener(this);
 
     status_t res = mSensor->startUp();
@@ -297,7 +303,7 @@ status_t VirtualFakeCamera3::connectCamera() {
 /**
  * @brief  Closes Camera session.
  * 1. Shutdown Sensor thread and purge all framework buffers.
- * 2. Set Camera Session state to Close and wait for SocketServerThread to stop decoding.
+ * 2. Set Camera Session state to Close and wait for ClientCommunicator to stop decoding.
  * 3. Release ownershipt from this (VirtualFakeCamera3) object.
  * 4. Send Close command to Client for stopping camera feed.
  *
@@ -305,17 +311,6 @@ status_t VirtualFakeCamera3::connectCamera() {
  */
 status_t VirtualFakeCamera3::closeCamera() {
     ALOGI(LOG_TAG " %s: E ", __FUNCTION__);
-
-    // Workaround: first time after flash camera open close happens very fast
-    // and start video stream didnt starts properly so need wait for start
-    // stream. Need to be removed later once handle startPublication properly in
-    // remote. If NO processCaptureRequest received between open and close then wait.
-
-    if (!mprocessCaptureRequestFlag) {
-        ALOGE(LOG_TAG " %s: wait:..", __FUNCTION__);
-        std::this_thread::sleep_for(2500ms);
-    }
-    mprocessCaptureRequestFlag = false;
 
     if (mSensor == NULL) {
         return VirtualCamera3::closeCamera();
@@ -334,6 +329,14 @@ status_t VirtualFakeCamera3::closeCamera() {
         mReadoutThread->requestExit();
     }
 
+    if (gIsInFrameH264) {
+        // Set state to CameraClosed, so that ClientCommunicator stops decoding.
+        mClientThread->mCameraSessionState = socket::CameraSessionState::kCameraClosed;
+        mDecoder->flush_decoder();
+        mDecoder->destroy();
+        ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
+    }
+
     mReadoutThread->join();
 
     {
@@ -346,18 +349,8 @@ status_t VirtualFakeCamera3::closeCamera() {
         }
         mStreams.clear();
         mReadoutThread.clear();
-    }
-
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    handle->reset();
-    ALOGI("%s: Camera input buffers are reset", __func__);
-
-    if (gIsInFrameH264) {
-        // Set state to CameraClosed, so that SocketServerThread stops decoding.
-        mCameraSessionState = socket::CameraSessionState::kCameraClosed;
-        mDecoder->flush_decoder();
-        mDecoder->destroy();
-        ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
+        mCameraBuffer.reset();
+        mClientThread->mCameraBuffer = nullptr;
     }
 
     // Send close command to client
@@ -474,9 +467,6 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
             // Update app's res request to local variable.
             mSrcWidth = newStream->width;
             mSrcHeight = newStream->height;
-            // Update globally for clearing used buffers properly.
-            gSrcWidth = mSrcWidth;
-            gSrcHeight = mSrcHeight;
         }
     }
     mInputStream = inputStream;
@@ -577,11 +567,6 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
         if (res != OK) {
             return res;
         }
-
-        // Fill the input buffer with black frame to avoid green frame
-        // while changing the resolution in each request.
-        ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-        handle->clearBuffer();
     }
 
     return OK;
@@ -926,7 +911,6 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
     ALOGVV("%s: E", __FUNCTION__);
     Mutex::Autolock l(mLock);
     status_t res;
-    mprocessCaptureRequestFlag = true;
     /** Validation */
 
     if (mStatus < STATUS_READY) {
@@ -1284,13 +1268,13 @@ bool VirtualFakeCamera3::hasCapability(AvailableCapabilities cap) {
 
 void VirtualFakeCamera3::setCameraFacingInfo() {
     // Updating facing info based on client request.
-    mFacingBack = gCameraFacingBack;
+    mFacingBack = (mClientCameraInfo.facing  == (uint32_t)CameraFacing::BACK_FACING);
     ALOGI("%s: Camera ID %d is set as %s facing", __func__, mCameraID,
           mFacingBack ? "Back" : "Front");
 }
 
 void VirtualFakeCamera3::setInputCodecType() {
-    mCodecType = gCodecType;
+    mCodecType = mClientCameraInfo.codec_type;
     ALOGI("%s: Selected %s Codec_type for Camera %d", __func__, codec_type_to_str(mCodecType),
           mCameraID);
 }
@@ -1298,8 +1282,22 @@ void VirtualFakeCamera3::setInputCodecType() {
 void VirtualFakeCamera3::setMaxSupportedResolution() {
     // Updating max sensor supported resolution based on client camera.
     // This would be used in sensor related operations and metadata info.
-    mSensorWidth = gCameraMaxWidth;
-    mSensorHeight = gCameraMaxHeight;
+    switch (mClientCameraInfo.resolution) {
+        case uint32_t(FrameResolution::k480p):
+            mSensorWidth = 640;
+            mSensorHeight = 480;
+            break;
+        case uint32_t(FrameResolution::k720p):
+            mSensorWidth = 1280;
+            mSensorHeight = 720;
+            break;
+        case uint32_t(FrameResolution::k1080p):
+            mSensorWidth = 1920;
+            mSensorHeight = 1080;
+            break;
+        default:
+            break;
+    }
     ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d", __func__, mCameraID, mSensorWidth,
           mSensorHeight);
 }
@@ -1355,7 +1353,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
 
-    int32_t orientation = gCameraSensorOrientation;
+    int32_t orientation = mClientCameraInfo.sensorOrientation;
     ADD_STATIC_ENTRY(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
 
     static const uint8_t timestampSource = ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;

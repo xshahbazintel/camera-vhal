@@ -34,7 +34,7 @@
 #include <memory>
 #include <atomic>
 #include "CGCodec.h"
-#include "CameraSocketServerThread.h"
+#include "ClientCommunicator.h"
 #include "CameraSocketCommand.h"
 
 using ::android::hardware::camera::common::V1_0::helper::CameraMetadata;
@@ -53,9 +53,9 @@ namespace android {
 class VirtualFakeCamera3 : public VirtualCamera3, private Sensor::SensorListener {
 public:
     VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
-                       std::shared_ptr<CameraSocketServerThread> socket_server,
+                       std::shared_ptr<ClientCommunicator> client_thread,
                        std::shared_ptr<CGVideoDecoder> decoder,
-                       std::atomic<socket::CameraSessionState> &state);
+                       android::socket::camera_info_t clientCameraInfo);
 
     virtual ~VirtualFakeCamera3();
 
@@ -212,14 +212,12 @@ private:
     sp<JpegCompressor> mJpegCompressor;
     friend class JpegCompressor;
 
-    // socket server
-    std::shared_ptr<CameraSocketServerThread> mSocketServer;
+    // client thread
+    std::shared_ptr<ClientCommunicator> mClientThread;
     // NV12 Video decoder handle
     std::shared_ptr<CGVideoDecoder> mDecoder = nullptr;
+    android::socket::camera_info_t mClientCameraInfo;
 
-    std::atomic<socket::CameraSessionState> &mCameraSessionState;
-
-    bool createSocketServer(bool facing_back);
     status_t sendCommandToClient(socket::camera_cmd_t cmd);
 
     enum DecoderResolution {
@@ -325,11 +323,7 @@ private:
     // socket fd on which camera vHAL send open and close commands
     // and receive camera frames
     int mSocketfd = -1;
-    // Flag Indicate processCaptureRequest received from FW.
-    // It helps to identify whether camera open close happened without
-    // processCaptureRequest case. Take care First time camera open close after flash.
-    // Flag becomes important in webRTC case where video stream takes time to open.
-    bool mprocessCaptureRequestFlag = false;
+    std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 };
 
 }  // namespace android

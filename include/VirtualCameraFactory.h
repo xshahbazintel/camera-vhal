@@ -25,7 +25,8 @@
 #include <utils/RefBase.h>
 #include <vector>
 #include <memory>
-#include "CameraSocketServerThread.h"
+#include "CameraSocketCommand.h"
+#include "ClientCommunicator.h"
 #include "CGCodec.h"
 #include "VirtualBuffer.h"
 
@@ -33,7 +34,7 @@
 
 namespace android {
 
-class CameraSocketServerThread;
+class ClientCommunicator;
 
 /*
  * Contains declaration of a class VirtualCameraFactory that manages cameras
@@ -155,23 +156,25 @@ public:
     /*
      * Gets number of virtual remote cameras.
      */
-    int getVirtualCameraNum() const { return mNumOfCamerasSupported; }
+    int getVirtualCameraNum() const { return mVirtualCameras.size(); }
 
     /*
      * Checks whether or not the constructor has succeeded.
      */
     bool isConstructedOK() const { return mConstructedOK; }
 
+    /*
+     * Creates a virtual remote camera and adds it to mVirtualCameras.
+     */
+    bool createVirtualRemoteCamera(std::shared_ptr<CGVideoDecoder> decoder,
+                                   int clientId,
+                                   android::socket::camera_info_t cameraInfo);
+
 private:
     /****************************************************************************
      * Private API
      ***************************************************************************/
 
-    /*
-     * Creates a virtual remote camera and adds it to mVirtualCameras.
-     */
-    void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                                   std::shared_ptr<CGVideoDecoder> decoder, int cameraId);
     /*
      * Waits till remote-props has done setup, timeout after 500ms.
      */
@@ -193,13 +196,9 @@ private:
     /****************************************************************************
      * Data members.
      ***************************************************************************/
-    std::atomic<socket::CameraSessionState> mCameraSessionState;
-
     // Array of cameras available for the emulation.
-    VirtualBaseCamera **mVirtualCameras;
-
-    // Number of cameras supported in the HAL based on client request.
-    int mNumOfCamerasSupported;
+    std::vector<VirtualBaseCamera*>mVirtualCameras;
+    std::vector<std::vector<int>> mClientCameras;
 
     // Flags whether or not constructor has succeeded.
     bool mConstructedOK;
@@ -212,13 +211,11 @@ public:
     static struct hw_module_methods_t mCameraModuleMethods;
 
 private:
-    // NV12 Decoder
-    std::shared_ptr<CGVideoDecoder> mDecoder;
+    std::shared_ptr<ConnectionsListener> mSocketListener;
+    std::vector<std::shared_ptr<ClientCommunicator>> mClientThreads;
 
-    // Socket server
-    std::shared_ptr<CameraSocketServerThread> mSocketServer;
-
-    bool createSocketServer(std::shared_ptr<CGVideoDecoder> decoder);
+    bool createSocketListener();
+    int mNumClients;
 };
 
 };  // end of namespace android

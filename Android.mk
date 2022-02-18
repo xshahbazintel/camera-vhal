@@ -116,7 +116,8 @@ camera_vhal_src := \
 	src/VirtualFakeCamera3.cpp \
 	src/Exif.cpp \
 	src/Thumbnail.cpp \
-	src/CameraSocketServerThread.cpp \
+	src/ClientCommunicator.cpp \
+	src/ConnectionsListener.cpp \
 	src/CameraSocketCommand.cpp \
 	src/CGCodec.cpp
 

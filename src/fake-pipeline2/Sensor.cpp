@@ -37,7 +37,6 @@
 #include <chrono>
 #include <thread>
 #include <string>
-#include "VirtualBuffer.h"
 #include "system/camera_metadata.h"
 #include "GrallocModule.h"
 
@@ -100,7 +99,9 @@ float sqrtf_approx(float r) {
     return *(float *)(&r_i);
 }
 
-Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder)
+Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, 
+               std::shared_ptr<CGVideoDecoder> decoder,
+               std::shared_ptr<ClientVideoBuffer> cameraBuffer)
     : Thread(false),
       mResolution{width, height},
       mActiveArray{0, 0, width, height},
@@ -109,7 +110,8 @@ Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_
       mFrameDuration(kFrameDurationRange[0]),
       mScene(width, height, kElectronsPerLuxSecond),
       mCameraId(camera_id),
-      mDecoder{decoder} {
+      mDecoder{decoder},
+      mCameraBuffer(cameraBuffer) {
     // Max supported resolution of the camera sensor.
     // It is based on client camera capability info.
     mSrcWidth = width;
@@ -323,8 +325,7 @@ bool Sensor::threadLoop() {
         mScene.setExposureDuration((float)exposureDuration / 1e9);
         mScene.calculateScene(mNextCaptureTime);
 
-        ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-        handle->clientBuf[handle->clientRevCount % 1].decoded = false;
+        mCameraBuffer->clientBuf.decoded = false;
 
         // Check the vendor specific property to dump the raw frames
         // if it is set to '1'
@@ -507,8 +508,7 @@ bool Sensor::getNV12Frames(uint8_t *input_buf, int *camera_input_size,
 void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
     ALOGVV("%s: E", __FUNCTION__);
 
-    auto *handle = ClientVideoBuffer::getClientInstance();
-    uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
+    uint8_t *bufData = mCameraBuffer->clientBuf.buffer;
     int cameraInputDataSize;
     size_t frameSizeRGB32 = mSrcWidth * mSrcHeight * BPP_RGB32;
     static size_t frameCount = 0;
@@ -522,17 +522,17 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
-        if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
+        if (mCameraBuffer->clientBuf.decoded) {
             // Note: bufData already assigned in the function start
             ALOGVV("%s - Already Decoded Camera Input Frame..", __FUNCTION__);
         } else {  // This is the default condition in all apps.
                   // To get the decoded frame.
             getNV12Frames(bufData, &cameraInputDataSize);
-            handle->clientBuf[handle->clientRevCount % 1].decoded = true;
+            mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
-            handle->decodedFrameNo++;
+            mCameraBuffer->decodedFrameNo++;
             ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
-                   handle->decodedFrameNo, cameraInputDataSize);
+                   mCameraBuffer->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
@@ -743,8 +743,7 @@ void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t he
 void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
     ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
 
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
+    uint8_t *bufData = mCameraBuffer->clientBuf.buffer;
     int cameraInputDataSize;
     static size_t frameCount = 0;
 
@@ -760,18 +759,18 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
-        if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
+        if (mCameraBuffer->clientBuf.decoded) {
             // Already decoded camera input as part of preview frame.
             // This is the default condition in most of the apps.
             ALOGVV("%s - Already Decoded Camera Input frame..", __FUNCTION__);
         } else {
             // To get the decoded frame for the apps which doesn't have RGBA preview.
             getNV12Frames(bufData, &cameraInputDataSize);
-            handle->clientBuf[handle->clientRevCount % 1].decoded = true;
+            mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
-            handle->decodedFrameNo++;
+            mCameraBuffer->decodedFrameNo++;
             ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
-                   handle->decodedFrameNo, cameraInputDataSize);
+                   mCameraBuffer->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
@@ -956,8 +955,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
     ALOGVV("%s: E", __FUNCTION__);
 
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
+    uint8_t *bufData = mCameraBuffer->clientBuf.buffer;
 
     int src_size = mSrcWidth * mSrcHeight;
     int dstFrameSize = width * height;
@@ -973,17 +971,17 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     cameraInputDataSize = mSrcFrameSize;
 
     if (gIsInFrameH264) {
-        if (handle->clientBuf[handle->clientRevCount % 1].decoded) {
+        if (mCameraBuffer->clientBuf.decoded) {
             // If already decoded camera input frame.
             ALOGVV("%s - Already Decoded Camera Input frame", __FUNCTION__);
         } else {
             // To get the decoded frame.
             getNV12Frames(bufData, &cameraInputDataSize);
-            handle->clientBuf[handle->clientRevCount % 1].decoded = true;
+            mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
-            handle->decodedFrameNo++;
+            mCameraBuffer->decodedFrameNo++;
             ALOGVV("%s Decoded Camera Input Frame No: %zd with size of %d", __FUNCTION__,
-                   handle->decodedFrameNo, cameraInputDataSize);
+                   mCameraBuffer->decodedFrameNo, cameraInputDataSize);
             ulock.unlock();
         }
     }
