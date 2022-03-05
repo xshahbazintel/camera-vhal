@@ -93,6 +93,16 @@ VirtualCameraFactory::VirtualCameraFactory()
     // Update number of cameras requested from remote client HW.
     mNumOfCamerasSupported = gMaxNumOfCamerasSupported;
 
+    // TODO: This might be removed when dynamic re-negotiation is supported in future.
+    if (mNumOfCamerasSupported == 0) {
+        ALOGI("%s: No camera device to support, hence no need to create vHAL", __func__);
+        if (mSocketServer) {
+            mSocketServer->requestExit();
+            mSocketServer->join();
+        }
+        return;
+    }
+
     // Allocate space for each cameras requested.
     mVirtualCameras = new VirtualBaseCamera *[mNumOfCamerasSupported];
     if (mVirtualCameras == nullptr) {

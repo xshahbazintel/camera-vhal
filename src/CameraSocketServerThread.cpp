@@ -214,7 +214,7 @@ bool CameraSocketServerThread::configureCapabilities() {
         goto out;
     }
 
-    // Get the number fo cameras requested to support from client.
+    // Get the number of cameras requested to support from client.
     for (int i = 1; i <= MAX_NUMBER_OF_SUPPORTED_CAMERAS; i++) {
         if (header.size == i * sizeof(camera_info_t)) {
             mNumOfCamerasRequested = i;
@@ -228,12 +228,12 @@ bool CameraSocketServerThread::configureCapabilities() {
         }
     }
 
+    // Update the number of cameras globally to create camera pipeline.
+    gMaxNumOfCamerasSupported = mNumOfCamerasRequested;
+
     if (mNumOfCamerasRequested == 0) {
         ALOGE(LOG_TAG "%s: invalid header size received, size = %zu", __FUNCTION__, recv_size);
         goto out;
-    } else {
-        // Update the number of cameras globally to create camera pipeline.
-        gMaxNumOfCamerasSupported = mNumOfCamerasRequested;
     }
 
     if ((recv_size = recv(mClientFd, (char *)&camera_info,
@@ -424,6 +424,11 @@ bool CameraSocketServerThread::configureCapabilities() {
 
     status = true;
 out:
+    if (mNumOfCamerasRequested == 0) {
+        ALOGI(LOG_TAG "%s: No Camera HW connected in the client device ",__FUNCTION__);
+        gCapabilityInfoReceived = true;
+    }
+
     free(ack_packet);
     free(cap_packet);
     ALOGVV(LOG_TAG " %s: Exit", __FUNCTION__);
@@ -496,9 +501,18 @@ bool CameraSocketServerThread::threadLoop() {
         status = configureCapabilities();
         if (status) {
             ALOGI(LOG_TAG
-                  "%s: Capability negotiation and metadata update"
+                  "%s: Capability negotiation and metadata update "
                   "for %d camera(s) completed successfully..",
                   __FUNCTION__, mNumOfCamerasRequested);
+        } else {
+            if (mNumOfCamerasRequested == 0) {
+                ALOGE(LOG_TAG " %s: Camera info received, but no camera device to support, "
+                      "hence no need to continue the process",
+                      __FUNCTION__);
+            } else {
+                ALOGE(LOG_TAG "%s: Capability negotiation failed..",  __FUNCTION__);
+            }
+            continue;
         }
 
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
