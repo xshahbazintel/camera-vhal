@@ -85,6 +85,7 @@ public:
     virtual status_t setCameraFD(int socketFd);
     virtual status_t cleanCameraFD(int socketFd);
     void setConflictingCameras(int cameraId);
+    void setUserId(int userId);
 
 protected:
     /* Fixed camera information for camera2 devices. Must be valid to access if
@@ -94,6 +95,7 @@ protected:
     /* Zero-based ID assigned to this camera. */
     int mCameraID;
     int mCameraSocketFD = -1;
+    int mUserId;
 
 private:
     /* Version of the camera device HAL implemented by this camera */

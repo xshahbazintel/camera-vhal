@@ -48,6 +48,10 @@ VirtualBaseCamera::VirtualBaseCamera(int cameraId, uint32_t cameraVersion,
 
 VirtualBaseCamera::~VirtualBaseCamera() {}
 
+void VirtualBaseCamera::setUserId(int userId) {
+    mUserId = userId;
+}
+
 status_t VirtualBaseCamera::getCameraInfo(struct camera_info *info) {
     ALOGV("%s", __FUNCTION__);
 
@@ -57,7 +61,8 @@ status_t VirtualBaseCamera::getCameraInfo(struct camera_info *info) {
     } else {
         info->static_camera_characteristics = (camera_metadata_t *)0xcafef00d;
     }
-    info->resource_cost = 100;
+    //TODO: Hardcoding user id for informing the framework.
+    info->resource_cost = mUserId;
     info->conflicting_devices = mConflictingDevicesAsChars.data();
     info->conflicting_devices_length = mConflictingDevicesAsChars.size();
     return NO_ERROR;

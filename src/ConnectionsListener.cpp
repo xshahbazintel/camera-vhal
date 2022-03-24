@@ -26,6 +26,13 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
         '\0',
     };
     int num_clients = 1;
+    if (property_get("ro.concurrent.user.num", buf, "") > 0){
+        int num = atoi(buf);
+        if (num > 1){
+            mNumConcurrentUsers = num_clients = num;
+            ALOGI("%s Support concurrent multi users(%d)", __FUNCTION__, mNumConcurrentUsers);
+        }
+    }
     mClientFdPromises.resize(num_clients);
 }
 
@@ -113,8 +120,34 @@ bool ConnectionsListener::threadLoop() {
             ALOGE(LOG_TAG " %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
             continue;
         }
-        android::socket::camera_header_t header = {};
         uint32_t client_id = 0;
+        if (mNumConcurrentUsers > 0) {
+            size_t packet_size = sizeof(android::socket::camera_header_t) + sizeof(client_id);
+            bool status = true;
+            android::socket::camera_packet_t * user_id_packet = (android::socket::camera_packet_t *)malloc(packet_size);
+            if (user_id_packet == NULL) {
+                ALOGE("%s: user_id_packet allocation failed: %d ", __FUNCTION__, __LINE__);
+                continue;
+            }
+            if (recv(new_client_fd, (char *)user_id_packet, packet_size, MSG_WAITALL) < 0) {
+                ALOGE(LOG_TAG "%s: Failed to receive user_id header, err: %s ", __FUNCTION__, strerror(errno));
+                status = false;
+            }
+            if (user_id_packet->header.type != android::socket::CAMERA_USER_ID) {
+                ALOGE(LOG_TAG "%s: Invalid packet type %d\n", __FUNCTION__, user_id_packet->header.type);
+                status = false;
+            }
+            if (user_id_packet->header.size != sizeof(client_id)) {
+                ALOGE(LOG_TAG "%s: Invalid packet size %u\n", __FUNCTION__, user_id_packet->header.size);
+                status = false;
+            }
+            if (!status) {
+                free(user_id_packet);
+                continue;
+            }
+            memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
+            free(user_id_packet);
+        }
         mClientFdPromises[client_id].set_value(new_client_fd);
         ALOGI(LOG_TAG " %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
     }

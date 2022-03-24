@@ -104,7 +104,8 @@ typedef enum _camera_packet_type {
     CAMERA_CONFIG = 2,
     CAMERA_DATA = 3,
     ACK = 4,
-    CAMERA_INFO = 5
+    CAMERA_INFO = 5,
+    CAMERA_USER_ID = 6
 } camera_packet_type_t;
 
 typedef struct _camera_header {

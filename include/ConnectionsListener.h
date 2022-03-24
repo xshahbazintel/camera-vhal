@@ -38,6 +38,7 @@ private:
     bool mRunning;
     int mSocketServerFd = -1;
     std::string mSocketPath;
+    int mNumConcurrentUsers = 0;
     std::vector<std::promise<int>> mClientFdPromises;
 };
 }  // namespace android

@@ -58,6 +58,13 @@ void VirtualCameraFactory::readSystemProperties() {
     gUseVaapi = !strcmp(prop_val, "true");
 
     mNumClients = 1;
+    if (property_get("ro.concurrent.user.num", prop_val, "") > 0){
+        int num = atoi(prop_val);
+        if (num > 1){
+            mNumClients = num;
+            ALOGI("Support concurrent multi users(%d)", num);
+        }
+    }
     ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, gUseVaapi: %d, mNumClients: %d",
           __func__, gIsInFrameH264, gIsInFrameI420, gUseVaapi, mNumClients);
 }
@@ -243,6 +250,7 @@ bool VirtualCameraFactory::createVirtualRemoteCamera(
     if (mVirtualCameras[cameraId] == nullptr) {
         ALOGE("%s: Unable to instantiate fake camera class", __FUNCTION__);
     } else {
+        mVirtualCameras[cameraId]->setUserId(clientId);
         for (int id : mClientCameras[clientId]) {
             mVirtualCameras[cameraId]->setConflictingCameras(id);
             mVirtualCameras[id]->setConflictingCameras(cameraId);
