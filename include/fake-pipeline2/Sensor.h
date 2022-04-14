@@ -95,7 +95,7 @@ class Sensor : private Thread, public virtual RefBase {
 public:
     // width: Max width of client camera HW.
     // height: Max height of client camera HW.
-    Sensor(uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder = nullptr);
+    Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder = nullptr);
     ~Sensor();
 
     /*
@@ -236,12 +236,15 @@ private:
     void captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
     void captureDepth(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
     void captureDepthCloud(uint8_t *img);
-    void saveNV21(uint8_t *img, uint32_t size);
-    bool debug_picture_take = false;
-    void dump_decoded_frame(const std::string &filename);
+    void dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_id,
+                   const char *frame_type, uint32_t resolution, size_t frame_count);
+    bool getNV12Frames(uint8_t *out_buf, int *out_size, std::chrono::milliseconds timeout_ms = 5ms);
 
     // m_major_version 0: CPU 1: SG1
     uint8_t m_major_version = 1;
+
+    uint32_t mCameraId;
+    uint8_t mDumpEnabled;
 
     // Max supported resolution and size of client/source camera HW.
     // HAL supports max 1080p resolution.
@@ -273,9 +276,6 @@ private:
 
     std::shared_ptr<CGVideoDecoder> mDecoder = {};
 
-    bool getNV12Frames(uint8_t *out_buf, int *out_size, std::chrono::milliseconds timeout_ms = 5ms);
-    void dump_yuv(uint8_t *img1, size_t img1_size, uint8_t *img2, size_t img2_size,
-                  const std::string &filename);
 };
 }  // namespace android
 

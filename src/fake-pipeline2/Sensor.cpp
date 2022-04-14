@@ -41,21 +41,9 @@
 #include "system/camera_metadata.h"
 #include "GrallocModule.h"
 
-using namespace std::string_literals;
+#define BPP_RGB32 4
 
-#define DUMP_RGBA(dump_index, p_addr1, len1)                                   \
-    ({                                                                         \
-        size_t rc = 0;                                                         \
-        char filename[64] = {'\0'};                                            \
-        snprintf(filename, sizeof(filename), "/ipc/vHAL_RGBA_%d", dump_index); \
-        FILE *fp = fopen(filename, "w+");                                      \
-        if (fp) {                                                              \
-            rc = fwrite(p_addr1, 1, len1, fp);                                 \
-            fclose(fp);                                                        \
-        } else {                                                               \
-            ALOGE("open failed!!!");                                           \
-        }                                                                      \
-    })
+using namespace std::string_literals;
 
 namespace android {
 std::mutex client_buf_mutex;
@@ -112,7 +100,7 @@ float sqrtf_approx(float r) {
     return *(float *)(&r_i);
 }
 
-Sensor::Sensor(uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder)
+Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> decoder)
     : Thread(false),
       mResolution{width, height},
       mActiveArray{0, 0, width, height},
@@ -120,6 +108,7 @@ Sensor::Sensor(uint32_t width, uint32_t height, std::shared_ptr<CGVideoDecoder> 
       mExposureTime(kFrameDurationRange[0] - kMinVerticalBlank),
       mFrameDuration(kFrameDurationRange[0]),
       mScene(width, height, kElectronsPerLuxSecond),
+      mCameraId(camera_id),
       mDecoder{decoder} {
     // Max supported resolution of the camera sensor.
     // It is based on client camera capability info.
@@ -256,6 +245,7 @@ bool Sensor::threadLoop() {
     uint32_t gain;
     Buffers *nextBuffers;
     uint32_t frameNumber;
+    char value[PROPERTY_VALUE_MAX];
     ALOGVV("Sensor Thread stage E :1");
     SensorListener *listener = nullptr;
     {
@@ -334,6 +324,11 @@ bool Sensor::threadLoop() {
 
         ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
         handle->clientBuf[handle->clientRevCount % 1].decoded = false;
+
+        // Check the vendor specific property to dump the raw frames
+        // if it is set to '1'
+        property_get("vendor.camera.dump.uncompressed", value, 0);
+        mDumpEnabled = atoi(value);
 
         // Might be adding more buffers, so size isn't constant
         for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
@@ -454,25 +449,18 @@ void Sensor::captureRaw(uint8_t *img, uint32_t gain, uint32_t stride) {
     ALOGVV("Raw sensor image captured");
 }
 
-void Sensor::dump_yuv(uint8_t *img1, size_t img1_size, uint8_t *img2, size_t img2_size,
-                      const std::string &filename) {
-    static size_t count = 0;
-    ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
-    uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
-
-    if (++count == 120) return;
-    if (filename.empty()) {
-        ALOGE("filename is null \n");
-        return;
+void Sensor::dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_id,
+                       const char *frame_type, uint32_t resolution, size_t frame_count) {
+    char filename[64] = {'\0'};
+    snprintf(filename, sizeof(filename), "/ipc/DUMP_vHAL_CAM%u_%s_%up_%zu",
+             camera_id, frame_type, resolution, frame_count);
+    FILE *fp = fopen(filename, "w+");
+    if (fp) {
+        fwrite(frame_addr, frame_size, 1, fp);
+        fclose(fp);
+    } else {
+        ALOGE("%s: file open failed!!!", __func__);
     }
-    FILE *f = fopen(filename.c_str(), "a+b");
-    if (!f) {
-        ALOGE("%s: open %s failed, return \n", __func__, filename.c_str());
-        return;
-    }
-    fwrite(img1, img1_size, 1, f);
-    fwrite(img2, img2_size, 1, f);
-    fclose(f);
 }
 
 bool Sensor::getNV12Frames(uint8_t *input_buf, int *camera_input_size,
@@ -521,6 +509,8 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     auto *handle = ClientVideoBuffer::getClientInstance();
     uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
     int cameraInputDataSize;
+    size_t frameSizeRGB32 = mSrcWidth * mSrcHeight * BPP_RGB32;
+    static size_t frameCount = 0;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
         ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
@@ -577,8 +567,21 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             uint8_t *dst_abgr = img;
             int dst_stride_abgr = width * 4;
 
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV12 input [%zu] for preview/video",__FUNCTION__, frameCount);
+                dumpFrame(bufData, mSrcFrameSize, mCameraId, "NV12", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
+            }
+
             if (int ret = libyuv::NV12ToABGR(src_y, src_stride_y, src_uv, src_stride_uv, dst_abgr,
                                              dst_stride_abgr, width, height)) {
+            }
+
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump RGB32 output [%zu] for preview/video",__FUNCTION__, frameCount);
+                dumpFrame(img, frameSizeRGB32, mCameraId, "RGB32", height, frameCount);
             }
         }
         // For upscaling and downscaling all other resolutions below max supported resolution.
@@ -639,6 +642,14 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             uint8_t *dst_v = mDstTempPrevBuf.data() + src_size + src_size / 4;
             int dst_stride_v = mSrcWidth >> 1;
 
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV12 input [%zu] for preview/video",__FUNCTION__, frameCount);
+                dumpFrame(bufData, mSrcFrameSize, mCameraId, "NV12", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
+            }
+
             if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv, dst_y,
                                              dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
                                              mSrcWidth, mSrcHeight)) {
@@ -683,19 +694,14 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                     libyuv::I420ToABGR(src_y, src_stride_y, src_u, src_stride_u, src_v,
                                        src_stride_v, dst_abgr, dst_stride_abgr, width, height)) {
             }
+
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump RGB32 output [%zu] for preview/video",__FUNCTION__, frameCount);
+                dumpFrame(img, frameSizeRGB32, mCameraId, "RGB32", height, frameCount);
+            }
         }
     }
-
-    ALOGVV(" %s: Captured RGB32 image sucessfully..", __FUNCTION__);
-
-// Debug point
-#if 0
-    static int j = 0;
-    if (j++ < 1000) {
-        ALOGI("%s: Dump RGBA[%d]", __FUNCTION__, j);
-        DUMP_RGBA(j, img, 1228800);
-    }
-#endif
+    ALOGVV(" %s: Captured RGB32 image successfully..", __FUNCTION__);
 }
 
 void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
@@ -733,29 +739,13 @@ void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t he
     ALOGVV("RGB sensor image captured");
 }
 
-void Sensor::saveNV21(uint8_t *img, uint32_t size) {
-    ALOGVV("%s", __FUNCTION__);
-
-    FILE *f;
-    f = fopen("/data/local/tmp/savenv21.nv21", "wb");
-    if (nullptr == f) {
-        ALOGVV("%s:%d Fail to open /data/local/tmp/savenv21.nv21.", __func__, __LINE__);
-        return;
-    }
-    ALOGVV("%s:%d Start to save /data/local/tmp/savenv21.nv21.", __func__, __LINE__);
-    for (uint32_t i = 0; i < size; i++) {
-        fwrite(img + i, 1, 1, f);
-    }
-    ALOGVV("%s:%d Finish to save /data/local/tmp/savenv21.nv21.", __func__, __LINE__);
-    fclose(f);
-}
-
 void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
     ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
 
     ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
     uint8_t *bufData = handle->clientBuf[handle->clientRevCount % 1].buffer;
     int cameraInputDataSize;
+    static size_t frameCount = 0;
 
     ALOGVV(LOG_TAG " %s: bufData[%p] img[%p] resolution[%d:%d]", __func__, bufData, img, width,
            height);
@@ -821,6 +811,14 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             // For NV12 Input support. No Color conversion
             ALOGVV(LOG_TAG " %s: NV12 frame without scaling and color conversion: Size = %dx%d",
                    __FUNCTION__, width, height);
+
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV12 input [%zu] for capture",__FUNCTION__, frameCount);
+                dumpFrame(bufData, mSrcFrameSize, mCameraId, "NV12_CAP", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
+            }
             memcpy(img, bufData, cameraInputDataSize);
         }
         // For upscaling and downscaling all other resolutions below max supported resolution.
@@ -896,6 +894,14 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             uint8_t *dst_v = mDstTempBuf.data() + src_size + src_size / 4;
             int dst_stride_v = mSrcWidth >> 1;
 
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV12 input [%zu] for capture",__FUNCTION__, frameCount);
+                dumpFrame(bufData, mSrcFrameSize, mCameraId, "NV12_CAP", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
+            }
+
             if (int ret = libyuv::NV12ToI420(src_y, src_stride_y, src_uv, src_stride_uv, dst_y,
                                              dst_stride_y, dst_u, dst_stride_u, dst_v, dst_stride_v,
                                              mSrcWidth, mSrcHeight)) {
@@ -943,13 +949,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             }
         }
     }
-
-#if 0
-    if (debug_picture_take) {
-        saveNV21(img, width * height * 3);
-    }
-#endif
-    ALOGVV(LOG_TAG " %s: Captured NV12 image sucessfully..", __FUNCTION__);
+    ALOGVV(LOG_TAG " %s: Captured NV12 image successfully..", __FUNCTION__);
 }
 
 void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
@@ -960,8 +960,8 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 
     int src_size = mSrcWidth * mSrcHeight;
     int dstFrameSize = width * height;
-
     int cameraInputDataSize;
+    static size_t frameCount = 0;
 
     if (!gIsInFrameI420 && !gIsInFrameH264) {
         ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
@@ -1046,6 +1046,14 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             if (int ret = libyuv::I420ToNV21(src_y, src_stride_y, src_u, src_stride_u, src_v,
                                              src_stride_v, dst_y, dst_stride_y, dst_vu,
                                              dst_stride_vu, width, height)) {
+            }
+
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV21 output [%zu] for capture",__FUNCTION__, frameCount);
+                dumpFrame(img, mSrcFrameSize, mCameraId, "NV21_CAP", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
             }
         }
         // For upscaling and downscaling all other resolutions below max supported resolution.
@@ -1159,9 +1167,17 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
                                              src_stride_v, dst_y, dst_stride_y, dst_vu,
                                              dst_stride_vu, width, height)) {
             }
+
+	    if (mDumpEnabled) {
+                ALOGI("%s: Dump NV21 output [%zu] for capture",__FUNCTION__, frameCount);
+                dumpFrame(img, mSrcFrameSize, mCameraId, "NV21_CAP", height, frameCount);
+                frameCount++;
+            } else {
+                frameCount = 0;
+            }
         }
     }
-    ALOGVV("%s: Captured NV21 image sucessfully..", __FUNCTION__);
+    ALOGVV("%s: Captured NV21 image successfully..", __FUNCTION__);
 }
 
 void Sensor::captureDepth(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {

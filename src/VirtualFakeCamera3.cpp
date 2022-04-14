@@ -264,7 +264,7 @@ status_t VirtualFakeCamera3::connectCamera() {
     mCameraSessionState = CameraSessionState::kCameraOpened;
 
     // create sensor who gets decoded frames and forwards them to framework
-    mSensor = new Sensor(mSrcWidth, mSrcHeight, mDecoder);
+    mSensor = new Sensor(mCameraID, mSrcWidth, mSrcHeight, mDecoder);
     mSensor->setSensorListener(this);
 
     status_t res = mSensor->startUp();
