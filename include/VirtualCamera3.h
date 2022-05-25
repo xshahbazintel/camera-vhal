@@ -56,19 +56,12 @@ public:
     /* List of all defined capabilities plus useful HW levels */
     enum AvailableCapabilities {
         BACKWARD_COMPATIBLE,
+        BURST_CAPTURE,
         MANUAL_SENSOR,
         MANUAL_POST_PROCESSING,
-        RAW,
-        PRIVATE_REPROCESSING,
-        READ_SENSOR_SETTINGS,
-        BURST_CAPTURE,
-        YUV_REPROCESSING,
-        DEPTH_OUTPUT,
-        CONSTRAINED_HIGH_SPEED_VIDEO,
-        MOTION_TRACKING,
         // Levels
         FULL_LEVEL,
-
+        LIMITED_LEVEL,
         NUM_CAPABILITIES
     };
 

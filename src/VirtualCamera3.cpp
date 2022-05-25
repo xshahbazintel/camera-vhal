@@ -239,15 +239,8 @@ camera3_device_ops_t VirtualCamera3::sDeviceOps = {
 
 const char *VirtualCamera3::sAvailableCapabilitiesStrings[NUM_CAPABILITIES] = {
     "BACKWARD_COMPATIBLE",
-    "MANUAL_SENSOR",
-    "MANUAL_POST_PROCESSING",
-    "RAW",
-    "PRIVATE_REPROCESSING",
-    "READ_SENSOR_SETTINGS",
     "BURST_CAPTURE",
-    "YUV_REPROCESSING",
-    "DEPTH_OUTPUT",
-    "CONSTRAINED_HIGH_SPEED_VIDEO",
-    "FULL_LEVEL"};
+    "MANUAL_SENSOR",
+    "MANUAL_POST_PROCESSING"};
 
 }; /* namespace android */

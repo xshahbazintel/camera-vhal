@@ -1246,54 +1246,30 @@ void VirtualFakeCamera3::dump(int fd) {}
  */
 
 status_t VirtualFakeCamera3::getCameraCapabilities() {
-    const char *key = mFacingBack ? "remote.sf.back_camera_caps" : "remote.sf.front_camera_caps";
-
-    /* Defined by 'remote.sf.*_camera_caps' boot property: if the
-     * property doesn't exist, it is assumed to list FULL. */
     char prop[PROPERTY_VALUE_MAX];
-    if (property_get(key, prop, NULL) > 0) {
-        char *saveptr = nullptr;
-        char *cap = strtok_r(prop, " ,", &saveptr);
-        while (cap != NULL) {
-            for (int i = 0; i < NUM_CAPABILITIES; i++) {
-                if (!strcasecmp(cap, sAvailableCapabilitiesStrings[i])) {
-                    mCapabilities.add(static_cast<AvailableCapabilities>(i));
-                    break;
-                }
-            }
-            cap = strtok_r(NULL, " ,", &saveptr);
-        }
-        if (mCapabilities.size() == 0) {
-            ALOGE("remote.sf.back_camera_caps had no valid capabilities: %s", prop);
-        }
-    }
-    // Default to FULL_LEVEL plus RAW if nothing is defined
-    if (mCapabilities.size() == 0) {
+
+    if (property_get("ro.vendor.camera.hw_capability.config", prop, NULL) > 0 &&
+            !strcasecmp(prop, "FULL")) {
+        ALOGI("%s: Selected FULL HW level", __func__);
         mCapabilities.add(FULL_LEVEL);
-        // "RAW" causes several CTS failures: b/68723953, disable it so far.
-        // TODO: add "RAW" back when all failures are resolved.
-        // mCapabilities.add(RAW);
-        mCapabilities.add(MOTION_TRACKING);
+    } else {
+        // Default would be LIMITED for remote cameras.
+        mCapabilities.add(LIMITED_LEVEL);
+        ALOGI("%s: Selected LIMITED HW level", __func__);
     }
 
-    // Add level-based caps
+    // Add capability features based on HW LEVELs
     if (hasCapability(FULL_LEVEL)) {
+        mCapabilities.add(BACKWARD_COMPATIBLE);
         mCapabilities.add(BURST_CAPTURE);
-        mCapabilities.add(READ_SENSOR_SETTINGS);
         mCapabilities.add(MANUAL_SENSOR);
         mCapabilities.add(MANUAL_POST_PROCESSING);
-    };
-
-    // Backwards-compatible is required for most other caps
-    // Not required for DEPTH_OUTPUT, though.
-    if (hasCapability(BURST_CAPTURE) || hasCapability(READ_SENSOR_SETTINGS) || hasCapability(RAW) ||
-        hasCapability(MANUAL_SENSOR) || hasCapability(MANUAL_POST_PROCESSING) ||
-        hasCapability(PRIVATE_REPROCESSING) || hasCapability(YUV_REPROCESSING) ||
-        hasCapability(CONSTRAINED_HIGH_SPEED_VIDEO)) {
+    } else if (hasCapability(LIMITED_LEVEL)) {
         mCapabilities.add(BACKWARD_COMPATIBLE);
+        mCapabilities.add(BURST_CAPTURE);
     }
 
-    ALOGI("Camera %d capabilities:", mCameraID);
+    ALOGI("%s: Supported HW capabilities for Camera%d", __func__, mCameraID);
     for (size_t i = 0; i < mCapabilities.size(); i++) {
         ALOGI("  %s", sAvailableCapabilitiesStrings[mCapabilities[i]]);
     }
@@ -1385,7 +1361,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     static const uint8_t timestampSource = ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE, &timestampSource, 1);
 
-    if (hasCapability(RAW) || hasCapability(MANUAL_SENSOR)) {
+    if (hasCapability(MANUAL_SENSOR)) {
         ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_WHITE_LEVEL, (int32_t *)&Sensor::kMaxRawValue, 1);
 
         static const int32_t blackLevelPattern[4] = {
@@ -1393,11 +1369,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             (int32_t)Sensor::kBlackLevel, (int32_t)Sensor::kBlackLevel};
         ADD_STATIC_ENTRY(ANDROID_SENSOR_BLACK_LEVEL_PATTERN, blackLevelPattern,
                          sizeof(blackLevelPattern) / sizeof(int32_t));
-    }
-
-    if (hasCapability(RAW)) {
-        ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT,
-                         &Sensor::kColorFilterArrangement, 1);
     }
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
@@ -1435,55 +1406,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         static const uint8_t lensFocusCalibration =
             ANDROID_LENS_INFO_FOCUS_DISTANCE_CALIBRATION_APPROXIMATE;
         ADD_STATIC_ENTRY(ANDROID_LENS_INFO_FOCUS_DISTANCE_CALIBRATION, &lensFocusCalibration, 1);
-    }
-
-    if (hasCapability(DEPTH_OUTPUT)) {
-        // These could be included for non-DEPTH capability as well, but making this
-        // variable for testing coverage
-
-        // 90 degree rotation to align with long edge of a phone device that's by
-        // default portrait
-        static const float qO[] = {0.707107f, 0.f, 0.f, 0.707107f};
-
-        // Either a 180-degree rotation for back-facing, or no rotation for
-        // front-facing
-        const float qF[] = {0, (mFacingBack ? 1.f : 0.f), 0, (mFacingBack ? 0.f : 1.f)};
-
-        // Quarternion product, orientation change then facing
-        const float lensPoseRotation[] = {
-            qO[0] * qF[0] - qO[1] * qF[1] - qO[2] * qF[2] - qO[3] * qF[3],
-            qO[0] * qF[1] + qO[1] * qF[0] + qO[2] * qF[3] - qO[3] * qF[2],
-            qO[0] * qF[2] + qO[2] * qF[0] + qO[1] * qF[3] - qO[3] * qF[1],
-            qO[0] * qF[3] + qO[3] * qF[0] + qO[1] * qF[2] - qO[2] * qF[1]};
-
-        ADD_STATIC_ENTRY(ANDROID_LENS_POSE_ROTATION, lensPoseRotation,
-                         sizeof(lensPoseRotation) / sizeof(float));
-
-        // Only one camera facing each way, so 0 translation needed to the center of
-        // the 'main' camera
-        static const float lensPoseTranslation[] = {0.f, 0.f, 0.f};
-
-        ADD_STATIC_ENTRY(ANDROID_LENS_POSE_TRANSLATION, lensPoseTranslation,
-                         sizeof(lensPoseTranslation) / sizeof(float));
-
-        // Intrinsics are 'ideal' (f_x, f_y, c_x, c_y, s) match focal length and
-        // active array size
-        float f_x = focalLengths * mSensorWidth / sensorPhysicalSize[0];
-        float f_y = focalLengths * mSensorHeight / sensorPhysicalSize[1];
-        float c_x = mSensorWidth / 2.f;
-        float c_y = mSensorHeight / 2.f;
-        float s = 0.f;
-        const float lensIntrinsics[] = {f_x, f_y, c_x, c_y, s};
-
-        ADD_STATIC_ENTRY(ANDROID_LENS_INTRINSIC_CALIBRATION, lensIntrinsics,
-                         sizeof(lensIntrinsics) / sizeof(float));
-
-        // No radial or tangential distortion
-
-        float lensRadialDistortion[] = {1.0f, 0.f, 0.f, 0.f, 0.f, 0.f};
-
-        ADD_STATIC_ENTRY(ANDROID_LENS_RADIAL_DISTORTION, lensRadialDistortion,
-                         sizeof(lensRadialDistortion) / sizeof(float));
     }
 
     uint8_t lensFacing = mFacingBack ? ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
@@ -1582,13 +1504,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
     };
 
-    const std::vector<int32_t> availableStreamConfigurationsRaw = {
-        HAL_PIXEL_FORMAT_RAW16,
-        width,
-        height,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-    };
-
     const std::vector<int32_t> availableStreamConfigurationsBurst = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
         width,
@@ -1646,11 +1561,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                                                  availableStreamConfigurations480p.end());
         }
     }
-    if (hasCapability(RAW)) {
-        availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                             availableStreamConfigurationsRaw.begin(),
-                                             availableStreamConfigurationsRaw.end());
-    }
+
     if (hasCapability(BURST_CAPTURE)) {
         availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                              availableStreamConfigurationsBurst.begin(),
@@ -1726,13 +1637,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         Sensor::kFrameDurationRange[0],
     };
 
-    const std::vector<int64_t> availableMinFrameDurationsRaw = {
-        HAL_PIXEL_FORMAT_RAW16,
-        width,
-        height,
-        Sensor::kFrameDurationRange[0],
-    };
-
     const std::vector<int64_t> availableMinFrameDurationsBurst = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
         width,
@@ -1789,11 +1693,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                                               availableMinFrameDurations480p.end());
         }
     }
-    if (hasCapability(RAW)) {
-        availableMinFrameDurations.insert(availableMinFrameDurations.end(),
-                                          availableMinFrameDurationsRaw.begin(),
-                                          availableMinFrameDurationsRaw.end());
-    }
+
     if (hasCapability(BURST_CAPTURE)) {
         availableMinFrameDurations.insert(availableMinFrameDurations.end(),
                                           availableMinFrameDurationsBurst.begin(),
@@ -1832,8 +1732,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         Sensor::kFrameDurationRange[0],
     };
 
-    const std::vector<int64_t> availableStallDurationsRaw = {HAL_PIXEL_FORMAT_RAW16, 640, 480,
-                                                             Sensor::kFrameDurationRange[0]};
     const std::vector<int64_t> availableStallDurationsBurst = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
         640,
@@ -1846,7 +1744,8 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         HAL_PIXEL_FORMAT_RGBA_8888,
         640,
         480,
-        0};
+        0,
+    };
 
     std::vector<int64_t> availableStallDurations;
 
@@ -1889,11 +1788,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                                            availableStallDurations480p.end());
         }
     }
-    if (hasCapability(RAW)) {
-        availableStallDurations.insert(availableStallDurations.end(),
-                                       availableStallDurationsRaw.begin(),
-                                       availableStallDurationsRaw.end());
-    }
+
     if (hasCapability(BURST_CAPTURE)) {
         availableStallDurations.insert(availableStallDurations.end(),
                                        availableStallDurationsBurst.begin(),
@@ -2095,53 +1990,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          availableNoiseReductionModes, sizeof(availableNoiseReductionModes));
     }
 
-    // android.depth
-
-    if (hasCapability(DEPTH_OUTPUT)) {
-        static const int32_t maxDepthSamples = 100;
-        ADD_STATIC_ENTRY(ANDROID_DEPTH_MAX_DEPTH_SAMPLES, &maxDepthSamples, 1);
-
-        static const int32_t availableDepthStreamConfigurations[] = {
-            HAL_PIXEL_FORMAT_Y16,
-            160,
-            120,
-            ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS_OUTPUT,
-            HAL_PIXEL_FORMAT_BLOB,
-            maxDepthSamples,
-            1,
-            ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS_OUTPUT};
-        ADD_STATIC_ENTRY(ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS,
-                         availableDepthStreamConfigurations,
-                         sizeof(availableDepthStreamConfigurations) / sizeof(int32_t));
-
-        static const int64_t availableDepthMinFrameDurations[] = {HAL_PIXEL_FORMAT_Y16,
-                                                                  160,
-                                                                  120,
-                                                                  Sensor::kFrameDurationRange[0],
-                                                                  HAL_PIXEL_FORMAT_BLOB,
-                                                                  maxDepthSamples,
-                                                                  1,
-                                                                  Sensor::kFrameDurationRange[0]};
-        ADD_STATIC_ENTRY(ANDROID_DEPTH_AVAILABLE_DEPTH_MIN_FRAME_DURATIONS,
-                         availableDepthMinFrameDurations,
-                         sizeof(availableDepthMinFrameDurations) / sizeof(int64_t));
-
-        static const int64_t availableDepthStallDurations[] = {HAL_PIXEL_FORMAT_Y16,
-                                                               160,
-                                                               120,
-                                                               Sensor::kFrameDurationRange[0],
-                                                               HAL_PIXEL_FORMAT_BLOB,
-                                                               maxDepthSamples,
-                                                               1,
-                                                               Sensor::kFrameDurationRange[0]};
-        ADD_STATIC_ENTRY(ANDROID_DEPTH_AVAILABLE_DEPTH_STALL_DURATIONS,
-                         availableDepthStallDurations,
-                         sizeof(availableDepthStallDurations) / sizeof(int64_t));
-
-        static const uint8_t depthIsExclusive = ANDROID_DEPTH_DEPTH_IS_EXCLUSIVE_FALSE;
-        ADD_STATIC_ENTRY(ANDROID_DEPTH_DEPTH_IS_EXCLUSIVE, &depthIsExclusive, 1);
-    }
-
     // android.shading
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
@@ -2180,29 +2028,8 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
             case MANUAL_POST_PROCESSING:
                 caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING);
                 break;
-            case RAW:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_RAW);
-                break;
-            case PRIVATE_REPROCESSING:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING);
-                break;
-            case READ_SENSOR_SETTINGS:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS);
-                break;
             case BURST_CAPTURE:
                 caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE);
-                break;
-            case YUV_REPROCESSING:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING);
-                break;
-            case DEPTH_OUTPUT:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT);
-                break;
-            case CONSTRAINED_HIGH_SPEED_VIDEO:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO);
-                break;
-            case MOTION_TRACKING:
-                caps.add(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_MOTION_TRACKING);
                 break;
             default:
                 // Ignore LEVELs
@@ -2236,13 +2063,6 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         availableResultKeys.add(ANDROID_LENS_FOCUS_RANGE);
         availableResultKeys.add(ANDROID_SENSOR_ROLLING_SHUTTER_SKEW);
         availableResultKeys.add(ANDROID_STATISTICS_SCENE_FLICKER);
-    }
-
-    if (hasCapability(DEPTH_OUTPUT)) {
-        availableResultKeys.add(ANDROID_LENS_POSE_ROTATION);
-        availableResultKeys.add(ANDROID_LENS_POSE_TRANSLATION);
-        availableResultKeys.add(ANDROID_LENS_INTRINSIC_CALIBRATION);
-        availableResultKeys.add(ANDROID_LENS_RADIAL_DISTORTION);
     }
 
     availableResultKeys.add(ANDROID_REQUEST_PIPELINE_DEPTH);
@@ -2931,24 +2751,6 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
         float focusRange[] = {1.0f / 5.0f, 0};  // 5 m to infinity in focus
         mCurrentRequest.settings.update(ANDROID_LENS_FOCUS_RANGE, focusRange,
                                         sizeof(focusRange) / sizeof(float));
-    }
-
-    if (mParent->hasCapability(DEPTH_OUTPUT)) {
-        camera_metadata_entry_t entry;
-
-        find_camera_metadata_entry(mParent->mCameraInfo, ANDROID_LENS_POSE_TRANSLATION, &entry);
-        mCurrentRequest.settings.update(ANDROID_LENS_POSE_TRANSLATION, entry.data.f, entry.count);
-
-        find_camera_metadata_entry(mParent->mCameraInfo, ANDROID_LENS_POSE_ROTATION, &entry);
-        mCurrentRequest.settings.update(ANDROID_LENS_POSE_ROTATION, entry.data.f, entry.count);
-
-        find_camera_metadata_entry(mParent->mCameraInfo, ANDROID_LENS_INTRINSIC_CALIBRATION,
-                                   &entry);
-        mCurrentRequest.settings.update(ANDROID_LENS_INTRINSIC_CALIBRATION, entry.data.f,
-                                        entry.count);
-
-        find_camera_metadata_entry(mParent->mCameraInfo, ANDROID_LENS_RADIAL_DISTORTION, &entry);
-        mCurrentRequest.settings.update(ANDROID_LENS_RADIAL_DISTORTION, entry.data.f, entry.count);
     }
 
     mCurrentRequest.settings.update(ANDROID_SENSOR_TIMESTAMP, &captureTime, 1);
