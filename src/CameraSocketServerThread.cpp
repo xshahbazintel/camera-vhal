@@ -192,7 +192,7 @@ bool CameraSocketServerThread::configureCapabilities() {
     cap_packet->header.type = CAPABILITY;
     cap_packet->header.size = sizeof(camera_capability_t);
     capability.codec_type = (uint32_t)VideoCodecType::kAll;
-    capability.resolution = (uint32_t)FrameResolution::kAll;
+    capability.resolution = (uint32_t)FrameResolution::k1080p;
     capability.maxNumberOfCameras = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
 
     memcpy(cap_packet->payload, &capability, sizeof(camera_capability_t));
