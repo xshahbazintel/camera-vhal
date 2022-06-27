@@ -30,6 +30,7 @@ public:
     virtual void requestExit();
     virtual status_t requestExitAndWait();
     int getClientFd(int clientId);
+    void clearClientFd(int clientId);
 
 private:
     virtual status_t readyToRun();
@@ -40,6 +41,7 @@ private:
     std::string mSocketPath;
     int mNumConcurrentUsers = 0;
     std::vector<std::promise<int>> mClientFdPromises;
+    std::vector<bool> mClientsConnected;
 };
 }  // namespace android
 

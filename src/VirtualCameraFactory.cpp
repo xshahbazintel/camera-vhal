@@ -93,8 +93,6 @@ VirtualCameraFactory::VirtualCameraFactory()
         }
         auto client_thread = std::make_shared<ClientCommunicator>(mSocketListener, decoder, id);
         mClientThreads[id] = client_thread;
-        std::string thread_name = "CameraSocketConnectionThread_" + std::to_string(id);
-        client_thread->run(thread_name.c_str());
     }
 
     ALOGI("%s: Cameras will be initialized dynamically when client connects", __FUNCTION__);

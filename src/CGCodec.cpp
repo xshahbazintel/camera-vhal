@@ -456,6 +456,8 @@ int CGVideoDecoder::destroy() {
     std::lock_guard<std::recursive_mutex> decode_push_lock(push_lock);
     std::lock_guard<std::recursive_mutex> decode_pull_lock(pull_lock);
     decoder_ready = false;
+    if (m_decode_ctx == nullptr)
+        return 0;
     av_parser_close(m_decode_ctx->parser);
     avcodec_free_context(&m_decode_ctx->avcodec_ctx);
     av_packet_free(&m_decode_ctx->packet);

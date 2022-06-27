@@ -22,14 +22,13 @@
 #include <sys/un.h>
 #include <utils/Mutex.h>
 #include <utils/String8.h>
-#include <utils/Thread.h>
 #include <utils/Vector.h>
 #include <string>
 #include <memory>
 #include <atomic>
+#include <future>
 #include <array>
 #include <chrono>
-#include <thread>
 #include "CGCodec.h"
 #include "CameraSocketCommand.h"
 #include "ConnectionsListener.h"
@@ -38,23 +37,21 @@
 namespace android {
 
 class VirtualCameraFactory;
-class ClientCommunicator : public Thread {
+class ClientCommunicator {
 public:
     ClientCommunicator(std::shared_ptr<ConnectionsListener> listener,
                              std::shared_ptr<CGVideoDecoder> decoder,
                              int client_id);
     ~ClientCommunicator();
 
-    virtual void requestExit();
-    virtual status_t requestExitAndWait();
     int getClientId();
     status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size);
     std::atomic<socket::CameraSessionState> mCameraSessionState;
     std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
 private:
-    virtual status_t readyToRun();
-    virtual bool threadLoop() override;
+    bool clientThread();
+    bool threadLooper();
 
     bool configureCapabilities();
 
@@ -72,6 +69,8 @@ private:
     // Source: https://tools.ietf.org/html/rfc6184#page-13
     std::array<uint8_t, 200 * 1024> mSocketBuffer = {};
     size_t mSocketBufferSize = 0;
+
+    std::future<bool> mThread;
 
     struct ValidateClientCapability {
         bool validCodecType = false;

@@ -51,8 +51,7 @@ using namespace socket;
 ClientCommunicator::ClientCommunicator(std::shared_ptr<ConnectionsListener> listener,
                                                    std::shared_ptr<CGVideoDecoder> decoder,
                                                    int client_id)
-    : Thread(/*canCallJava*/ false),
-      mRunning{true},
+    : mRunning{true},
       mClientId(client_id),
       mClientFd(-1),
       mListener{listener},
@@ -60,9 +59,13 @@ ClientCommunicator::ClientCommunicator(std::shared_ptr<ConnectionsListener> list
     ALOGD("%s: Created Connection Thread for client %d", __FUNCTION__, mClientId);
     mNumOfCamerasRequested = 0;
     mCameraSessionState = socket::CameraSessionState::kNone;
+    mThread = std::async(&ClientCommunicator::threadLooper, this);
 }
 
 ClientCommunicator::~ClientCommunicator() {
+    mRunning = false;
+    if (mThread.valid()) { mThread.wait(); }
+    Mutex::Autolock al(mMutex);
     if (mClientFd > 0) {
         shutdown(mClientFd, SHUT_RDWR);
         close(mClientFd);
@@ -70,17 +73,12 @@ ClientCommunicator::~ClientCommunicator() {
     }
 }
 
-status_t ClientCommunicator::requestExitAndWait() {
-    ALOGE("%s: Not implemented. Use requestExit + join instead", __FUNCTION__);
-    return INVALID_OPERATION;
-}
-
 int ClientCommunicator::getClientId() {
-    Mutex::Autolock al(mMutex);
     return mClientId;
 }
 
 status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size) {
+    Mutex::Autolock al(mMutex);
     if (mClientFd < 0) {
         ALOGE("%s: We're not connected to client yet!", __FUNCTION__);
         return false;
@@ -90,20 +88,6 @@ status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_pac
         return false;
     }
     return true;
-}
-
-void ClientCommunicator::requestExit() {
-    Mutex::Autolock al(mMutex);
-
-    ALOGV("%s: Requesting thread exit", __FUNCTION__);
-    mRunning = false;
-    ALOGV("%s: Request exit complete.", __FUNCTION__);
-}
-
-status_t ClientCommunicator::readyToRun() {
-    Mutex::Autolock al(mMutex);
-
-    return OK;
 }
 
 bool ClientCommunicator::configureCapabilities() {
@@ -125,6 +109,7 @@ bool ClientCommunicator::configureCapabilities() {
     camera_packet_t *ack_packet = NULL;
     camera_header_t header = {};
 
+    Mutex::Autolock al(mMutex);
     if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t), MSG_WAITALL)) < 0) {
         ALOGE("(%d) %s: Failed to receive header, err: %s ", mClientId, __FUNCTION__, strerror(errno));
         goto out;
@@ -348,11 +333,26 @@ out:
     return status;
 }
 
-bool ClientCommunicator::threadLoop() {
+bool ClientCommunicator::threadLooper() {
+    while (mRunning) {
+        if (!clientThread()) {
+            ALOGI("(%d) %s : clientThread returned flase, Exit", mClientId, __FUNCTION__);
+            return false;
+        } else {
+            ALOGI("(%d) %s : Re-spawn clientThread", mClientId, __FUNCTION__);
+        }
+    }
+    return true;
+}
+
+bool ClientCommunicator::clientThread() {
     ALOGVV("(%d) %s Enter", mClientId, __FUNCTION__);
     bool status = false;
-    mClientFd = mListener->getClientFd(mClientId);
-    ALOGI("(%d) %s: Received fd %d for client %d", mClientId, __FUNCTION__, mClientFd, mClientId);
+    {
+        Mutex::Autolock al(mMutex);
+        mClientFd = mListener->getClientFd(mClientId);
+        ALOGI("(%d) %s: Received fd %d", mClientId, __FUNCTION__, mClientFd);
+    }
     status = configureCapabilities();
     if (status) {
         ALOGI("(%d) %s: Capability negotiation and metadata update "
@@ -361,12 +361,11 @@ bool ClientCommunicator::threadLoop() {
     } else {
         if (mNumOfCamerasRequested == 0) {
             ALOGE(LOG_TAG " %s: Camera info received, but no camera device to support, "
-                  "hence no need to continue the process",
-                  __FUNCTION__);
+                  "hence no need to continue the process", __FUNCTION__);
+            return false;
         } else {
             ALOGE(LOG_TAG "%s: Capability negotiation failed..",  __FUNCTION__);
         }
-        return true;
     }
 
     char *fbuffer;
@@ -390,11 +389,9 @@ bool ClientCommunicator::threadLoop() {
             // connnection disconnected => socket is closed at the other end => close the
             // socket.
             ALOGE("(%d) %s: POLLHUP: Close camera socket connection", mClientId, __FUNCTION__);
-            shutdown(mClientFd, SHUT_RDWR);
-            close(mClientFd);
-            mClientFd = -1;
             break;
-        } else if (event & POLLIN) {  // preview / record
+        } else if (status && (event & POLLIN)) {  // preview / record
+            Mutex::Autolock al(mMutex);
             // data is available in socket => read data
             if (gIsInFrameI420) {
                 ssize_t size = 0;
@@ -493,14 +490,15 @@ bool ClientCommunicator::threadLoop() {
                     "%s: Only H264, H265, I420 Input frames are supported. Check Input format",
                     __FUNCTION__);
             }
-        } else {
-            //    ALOGE("%s: continue polling..", __FUNCTION__);
+        } else if (event != 0) {
+            ALOGE("(%d) %s: Event(%d), continue polling..", mClientId, __FUNCTION__, event);
         }
     }
     ALOGE(" %s: Quit ClientCommunicator... fd(%d)", __FUNCTION__, mClientFd);
     if (gIsInFrameI420) {
         delete[] fbuffer;
     }
+    mListener->clearClientFd(mClientId);
     shutdown(mClientFd, SHUT_RDWR);
     close(mClientFd);
     mClientFd = -1;

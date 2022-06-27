@@ -34,6 +34,7 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
         }
     }
     mClientFdPromises.resize(num_clients);
+    mClientsConnected.resize(num_clients, false);
 }
 
 status_t ConnectionsListener::requestExitAndWait() {
@@ -43,6 +44,11 @@ status_t ConnectionsListener::requestExitAndWait() {
 
 int ConnectionsListener::getClientFd(int clientId) {
     return mClientFdPromises[clientId].get_future().get();
+}
+
+void ConnectionsListener::clearClientFd(int clientId) {
+    mClientFdPromises[clientId] = std::promise<int>();
+    mClientsConnected[clientId] = false;
 }
 
 void ConnectionsListener::requestExit() {
@@ -148,8 +154,13 @@ bool ConnectionsListener::threadLoop() {
             memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
             free(user_id_packet);
         }
-        mClientFdPromises[client_id].set_value(new_client_fd);
-        ALOGI(LOG_TAG " %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
+        if (mClientsConnected[client_id]) {
+            ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);
+        } else {
+            mClientFdPromises[client_id].set_value(new_client_fd);
+            ALOGI(LOG_TAG " %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
+            mClientsConnected[client_id] = true;
+        }
     }
     close(mSocketServerFd);
     mSocketServerFd = -1;
