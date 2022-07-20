@@ -61,11 +61,11 @@ struct Resolution {
 /// Video buffer and its information
 struct VideoBuffer {
     /// Video buffer
-    uint8_t* buffer;
+    uint8_t* buffer = NULL;
     /// Resolution for the Video buffer
     Resolution resolution;
     // Buffer type
-    VideoBufferType type;
+    VideoBufferType type = VideoBufferType::kARGB;
     ~VideoBuffer() {}
 
     // To reset allocated buffer.

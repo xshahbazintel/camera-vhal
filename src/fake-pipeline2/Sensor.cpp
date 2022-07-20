@@ -115,6 +115,7 @@ Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, std::shared_
     mSrcWidth = width;
     mSrcHeight = height;
     mSrcFrameSize = mSrcWidth * mSrcHeight * BPP_NV12;
+    mDumpEnabled = 0;
 }
 
 Sensor::~Sensor() { shutDown(); }
