@@ -116,10 +116,10 @@ bool VirtualCameraFactory::createSocketListener() {
 }
 
 VirtualCameraFactory::~VirtualCameraFactory() {
-    for (auto entry : mVirtualCameras) {
-        if (entry != nullptr) {
-            delete entry;
-        }
+    for (auto it = mVirtualCameras.begin(); it != mVirtualCameras.end(); it++) {
+        delete it->second;
+        it->second = nullptr;
+        mVirtualCameras.erase(it);
     }
 
     if (mSocketListener) {
@@ -231,6 +231,19 @@ int VirtualCameraFactory::open_legacy(const struct hw_module_t *module, const ch
     return -ENOSYS;
 }
 
+void VirtualCameraFactory::clearCameraInfo(int clientId){
+    for (int cameraId : mClientCameras[clientId]) {
+        if (mVirtualCameras[cameraId] != nullptr) {
+            mCallbacks->camera_device_status_change(mCallbacks, cameraId, CAMERA_DEVICE_STATUS_NOT_PRESENT);
+            delete mVirtualCameras[cameraId];
+            //Entry for CameraId is not removed in order to keep the number of cameras count intact such that we never hit the condition of
+            //cameraId being graterthan or equalto number of cameras. It is made to point to nullptr.
+            mVirtualCameras[cameraId] = nullptr;
+        }
+    }
+    mClientCameras[clientId].clear();
+}
+
 /********************************************************************************
  * Internal API
  *******************************************************************************/
@@ -242,9 +255,15 @@ bool VirtualCameraFactory::createVirtualRemoteCamera(
     ALOGV("%s: E", __FUNCTION__);
     int cameraId = mVirtualCameras.size();
     std::shared_ptr<ClientCommunicator> client_thread = mClientThreads[clientId];
-    mVirtualCameras.push_back(
-        new VirtualFakeCamera3(cameraId, &HAL_MODULE_INFO_SYM.common, client_thread, decoder, cameraInfo));
+    for (int id = 0; id < mVirtualCameras.size(); id++) {
+        if (mVirtualCameras[id] == nullptr) {
+            ALOGI("%s:CameraId is set to %d", __FUNCTION__, id);
+            cameraId = id;
+            break;
+        }
+    }
 
+    mVirtualCameras[cameraId] = new VirtualFakeCamera3(cameraId, &HAL_MODULE_INFO_SYM.common, client_thread, decoder, cameraInfo);
     if (mVirtualCameras[cameraId] == nullptr) {
         ALOGE("%s: Unable to instantiate fake camera class", __FUNCTION__);
     } else {
@@ -265,6 +284,7 @@ bool VirtualCameraFactory::createVirtualRemoteCamera(
             ALOGE("%s: Unable to initialize camera %d: %s (%d)", __FUNCTION__,
                   cameraId, strerror(-res), res);
             delete mVirtualCameras[cameraId];
+            mVirtualCameras[cameraId] = nullptr;
         }
     }
     return false;

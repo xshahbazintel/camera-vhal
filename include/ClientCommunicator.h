@@ -53,7 +53,7 @@ private:
     bool clientThread();
     bool threadLooper();
 
-    bool configureCapabilities();
+    void configureCapabilities();
 
     Mutex mMutex;
     static Mutex sMutex; //Synchronize across threads
@@ -61,6 +61,7 @@ private:
     int mClientId;
     int mClientFd = -1;
     int mNumOfCamerasRequested;  // Number of cameras requested to support by client.
+    bool mIsConfigurationDone = false;
 
     std::shared_ptr<ConnectionsListener> mListener;
     std::shared_ptr<CGVideoDecoder> mVideoDecoder;

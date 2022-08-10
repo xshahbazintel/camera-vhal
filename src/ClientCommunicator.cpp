@@ -90,16 +90,16 @@ status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_pac
     return true;
 }
 
-bool ClientCommunicator::configureCapabilities() {
+void ClientCommunicator::configureCapabilities() {
     ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
 
-    bool status = false;
     bool valid_client_cap_info = false;
     int camera_id, expctd_cam_id;
     struct ValidateClientCapability val_client_cap[MAX_NUMBER_OF_SUPPORTED_CAMERAS];
     size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
     size_t cap_packet_size = sizeof(camera_header_t) + sizeof(camera_capability_t);
     ssize_t recv_size = 0;
+    mNumOfCamerasRequested = 0;
     camera_ack_t ack_payload = ACK_CONFIG;
 
     camera_info_t camera_info[MAX_NUMBER_OF_SUPPORTED_CAMERAS] = {};
@@ -110,21 +110,10 @@ bool ClientCommunicator::configureCapabilities() {
     camera_header_t header = {};
 
     Mutex::Autolock al(mMutex);
-    if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t), MSG_WAITALL)) < 0) {
-        ALOGE("%s(%d): Failed to receive header, err: %s ", __FUNCTION__, mClientId, strerror(errno));
-        goto out;
-    }
-
-    if (header.type != REQUEST_CAPABILITY) {
-        ALOGE("%s(%d): Invalid packet type\n", __FUNCTION__, mClientId);
-        goto out;
-    }
-    ALOGI("%s(%d): Received REQUEST_CAPABILITY header from client", __FUNCTION__, mClientId);
-
     cap_packet = (camera_packet_t *)malloc(cap_packet_size);
     if (cap_packet == NULL) {
         ALOGE("%s(%d): cap camera_packet_t allocation failed: %d ", __FUNCTION__, mClientId, __LINE__);
-        return false;
+        return;
     }
 
     cap_packet->header.type = CAPABILITY;
@@ -152,26 +141,31 @@ bool ClientCommunicator::configureCapabilities() {
         goto out;
     }
 
+    if (header.size > MAX_NUMBER_OF_SUPPORTED_CAMERAS*sizeof(camera_info_t)) {
+        ALOGW("%s(%d):[warning] Number of cameras requested by client is higher "
+              "than the max number of cameras supported in the HAL"
+              "We can only support max number of cameras that is supported in "
+              "the HAL instead of number of cameras requested by client",
+              __FUNCTION__, mClientId);
+        mNumOfCamerasRequested = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
+    }
+
     // Get the number of cameras requested to support from client.
     for (int i = 1; i <= MAX_NUMBER_OF_SUPPORTED_CAMERAS; i++) {
         if (header.size == i * sizeof(camera_info_t)) {
             mNumOfCamerasRequested = i;
             break;
-        } else if (mNumOfCamerasRequested == 0 && i == MAX_NUMBER_OF_SUPPORTED_CAMERAS) {
-            ALOGE("%s(%d): Failed to support number of cameras requested by client "
-                  "which is higher than the max number of cameras supported in the HAL",
-                  __FUNCTION__, mClientId);
-            goto out;
         }
     }
 
     if (mNumOfCamerasRequested == 0) {
-        ALOGE("%s(%d): invalid header size received, size = %zu", __FUNCTION__, mClientId, recv_size);
-        goto out;
+        ALOGE("%s(%d): No camera device to support, header size received, size = %zu",
+              __FUNCTION__, mClientId, recv_size);
+        goto send_ack;
     }
 
     if ((recv_size = recv(mClientFd, (char *)&camera_info,
-                          mNumOfCamerasRequested * sizeof(camera_info_t), MSG_WAITALL)) < 0) {
+                          header.size, MSG_WAITALL)) < 0) {
         ALOGE("%s(%d): Failed to receive camera info, err: %s ", __FUNCTION__, mClientId, strerror(errno));
         goto out;
     }
@@ -306,6 +300,7 @@ bool ClientCommunicator::configureCapabilities() {
         }
     }
 
+send_ack:
     ack_packet = (camera_packet_t *)malloc(ack_packet_size);
     if (ack_packet == NULL) {
         ALOGE("%s(%d): ack camera_packet_t allocation failed: %d ", __FUNCTION__, mClientId, __LINE__);
@@ -324,13 +319,13 @@ bool ClientCommunicator::configureCapabilities() {
     }
     ALOGI("%s(%d): Sent ACK packet to client with ack_size: %zu ", __FUNCTION__, mClientId,
           ack_packet_size);
-
-    status = true;
+    ALOGI("%s(%d): Capability negotiation and metadata update for %d camera(s) completed successfully..",
+          __FUNCTION__, mClientId, mNumOfCamerasRequested);
+    mIsConfigurationDone = true;
 out:
     free(ack_packet);
     free(cap_packet);
     ALOGVV("%s(%d): Exit", __FUNCTION__, mClientId);
-    return status;
 }
 
 bool ClientCommunicator::threadLooper() {
@@ -347,25 +342,10 @@ bool ClientCommunicator::threadLooper() {
 
 bool ClientCommunicator::clientThread() {
     ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
-    bool status = false;
     {
         Mutex::Autolock al(mMutex);
         mClientFd = mListener->getClientFd(mClientId);
         ALOGI("%s(%d): Received fd %d", __FUNCTION__, mClientId, mClientFd);
-    }
-    status = configureCapabilities();
-    if (status) {
-        ALOGI("%s(%d): Capability negotiation and metadata update "
-              "for %d camera(s) completed successfully..",
-              __FUNCTION__, mClientId, mNumOfCamerasRequested);
-    } else {
-        if (mNumOfCamerasRequested == 0) {
-            ALOGE("%s(%d): Camera info received, but no camera device to support, "
-                  "hence no need to continue the process", __FUNCTION__, mClientId);
-            return false;
-        } else {
-            ALOGE("%s(%d): Capability negotiation failed..",  __FUNCTION__, mClientId);
-        }
     }
 
     char *fbuffer;
@@ -390,8 +370,7 @@ bool ClientCommunicator::clientThread() {
             // socket.
             ALOGE("%s(%d): POLLHUP: Close camera socket connection", __FUNCTION__, mClientId);
             break;
-        } else if (status && (event & POLLIN)) {  // preview / record
-            Mutex::Autolock al(mMutex);
+        } else if (event & POLLIN) {  // preview / record
             // data is available in socket => read data
             if (gIsInFrameI420) {
                 ssize_t size = 0;
@@ -414,12 +393,12 @@ bool ClientCommunicator::clientThread() {
                                  MSG_WAITALL)) > 0) {
                     ALOGVV("%s(%d): Received Header %zd bytes. Payload size: %u",
                            __FUNCTION__, mClientId, size, header.size);
-                    if (header.type == REQUEST_CAPABILITY) {
-                        ALOGI("%s(%d): [Warning] Capability negotiation was already "
-                              "done for %d camera(s); Can't do re-negotiation again!!!",
-                              __FUNCTION__, mClientId, mNumOfCamerasRequested);
-                        continue;
-                    } else if (header.type != CAMERA_DATA) {
+                    if (header.type == REQUEST_CAPABILITY && header.size == 0) {
+                        ALOGI("%s(%d): Configure capability", __FUNCTION__, mClientId);
+                        gVirtualCameraFactory.clearCameraInfo(mClientId);
+                        configureCapabilities();
+                    }
+                    if (!mIsConfigurationDone || header.type != CAMERA_DATA) {
                         ALOGE("%s(%d): invalid camera_packet_type: %s", __FUNCTION__, mClientId,
                               camera_type_to_str(header.type));
                         continue;

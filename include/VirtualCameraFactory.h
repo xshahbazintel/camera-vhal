@@ -24,6 +24,7 @@
 
 #include <utils/RefBase.h>
 #include <vector>
+#include <map>
 #include <memory>
 #include "CameraSocketCommand.h"
 #include "ClientCommunicator.h"
@@ -79,6 +80,11 @@ public:
     /****************************************************************************
      * Camera HAL API handlers.
      ***************************************************************************/
+
+    /*
+     * Clears the virtual remote cameras entry and removes it from mVirtualCameras.
+     */
+    void clearCameraInfo(int clientId);
 
     /*
      * Opens (connects to) a camera device.
@@ -197,7 +203,7 @@ private:
      * Data members.
      ***************************************************************************/
     // Array of cameras available for the emulation.
-    std::vector<VirtualBaseCamera*>mVirtualCameras;
+    std::map<int,VirtualBaseCamera*>mVirtualCameras;
     std::vector<std::vector<int>> mClientCameras;
 
     // Flags whether or not constructor has succeeded.
