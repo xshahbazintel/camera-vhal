@@ -84,19 +84,19 @@ bool ConnectionsListener::threadLoop() {
         ALOGI(" %s camera socket server file is %s", __FUNCTION__, mSocketPath.c_str());
         ret = unlink(mSocketPath.c_str());
         if (ret < 0) {
-            ALOGE(LOG_TAG " %s Failed to unlink %s address %d, %s", __FUNCTION__,
+            ALOGE(" %s Failed to unlink %s address %d, %s", __FUNCTION__,
                   mSocketPath.c_str(), ret, strerror(errno));
             return false;
         }
     } else {
-        ALOGI(LOG_TAG " %s camera socket server file %s will created. ", __FUNCTION__,
+        ALOGI(" %s camera socket server file %s will created. ", __FUNCTION__,
               mSocketPath.c_str());
     }
 
     ret = ::bind(mSocketServerFd, (struct sockaddr *)&addr_un,
                  sizeof(sa_family_t) + strlen(mSocketPath.c_str()) + 1);
     if (ret < 0) {
-        ALOGE(LOG_TAG " %s Failed to bind %s address %d, %s", __FUNCTION__, mSocketPath.c_str(),
+        ALOGE(" %s Failed to bind %s address %d, %s", __FUNCTION__, mSocketPath.c_str(),
               ret, strerror(errno));
         return false;
     }
@@ -116,14 +116,14 @@ bool ConnectionsListener::threadLoop() {
     }
 
     while (mRunning) {
-        ALOGI(LOG_TAG " %s: Wait for camera client to connect. . .", __FUNCTION__);
+        ALOGI(" %s: Wait for camera client to connect. . .", __FUNCTION__);
 
         socklen_t alen = sizeof(struct sockaddr_un);
 
         int new_client_fd = ::accept(mSocketServerFd, (struct sockaddr *)&addr_un, &alen);
-        ALOGI(LOG_TAG " %s: Accepted client: [%d]", __FUNCTION__, new_client_fd);
+        ALOGI(" %s: Accepted client: [%d]", __FUNCTION__, new_client_fd);
         if (new_client_fd < 0) {
-            ALOGE(LOG_TAG " %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
+            ALOGE(" %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
             continue;
         }
         uint32_t client_id = 0;
@@ -136,15 +136,15 @@ bool ConnectionsListener::threadLoop() {
                 continue;
             }
             if (recv(new_client_fd, (char *)user_id_packet, packet_size, MSG_WAITALL) < 0) {
-                ALOGE(LOG_TAG "%s: Failed to receive user_id header, err: %s ", __FUNCTION__, strerror(errno));
+                ALOGE("%s: Failed to receive user_id header, err: %s ", __FUNCTION__, strerror(errno));
                 status = false;
             }
             if (user_id_packet->header.type != android::socket::CAMERA_USER_ID) {
-                ALOGE(LOG_TAG "%s: Invalid packet type %d\n", __FUNCTION__, user_id_packet->header.type);
+                ALOGE("%s: Invalid packet type %d\n", __FUNCTION__, user_id_packet->header.type);
                 status = false;
             }
             if (user_id_packet->header.size != sizeof(client_id)) {
-                ALOGE(LOG_TAG "%s: Invalid packet size %u\n", __FUNCTION__, user_id_packet->header.size);
+                ALOGE("%s: Invalid packet size %u\n", __FUNCTION__, user_id_packet->header.size);
                 status = false;
             }
             if (!status) {
@@ -158,7 +158,7 @@ bool ConnectionsListener::threadLoop() {
             ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);
         } else {
             mClientFdPromises[client_id].set_value(new_client_fd);
-            ALOGI(LOG_TAG " %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
+            ALOGI(" %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
             mClientsConnected[client_id] = true;
         }
     }
