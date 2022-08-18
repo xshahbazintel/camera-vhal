@@ -34,7 +34,6 @@
 #include <utils/Mutex.h>
 #include <memory>
 #include <atomic>
-#include "CGCodec.h"
 #include "ClientCommunicator.h"
 #include "CameraSocketCommand.h"
 
@@ -55,7 +54,7 @@ class VirtualFakeCamera3 : public VirtualCamera3, private Sensor::SensorListener
 public:
     VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                        std::shared_ptr<ClientCommunicator> client_thread,
-                       std::shared_ptr<CGVideoDecoder> decoder,
+                       std::shared_ptr<MfxDecoder> decoder,
                        android::socket::camera_info_t clientCameraInfo);
 
     virtual ~VirtualFakeCamera3();
@@ -215,8 +214,10 @@ private:
 
     // client thread
     std::shared_ptr<ClientCommunicator> mClientThread;
+
     // NV12 Video decoder handle
-    std::shared_ptr<CGVideoDecoder> mDecoder = nullptr;
+    std::shared_ptr<MfxDecoder> mDecoder = nullptr;
+
     android::socket::camera_info_t mClientCameraInfo;
 
     status_t sendCommandToClient(socket::camera_cmd_t cmd);

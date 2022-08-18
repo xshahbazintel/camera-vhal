@@ -51,8 +51,8 @@ Mutex ClientCommunicator::sMutex;
 
 using namespace socket;
 ClientCommunicator::ClientCommunicator(std::shared_ptr<ConnectionsListener> listener,
-                                                   std::shared_ptr<CGVideoDecoder> decoder,
-                                                   int client_id)
+                                       std::shared_ptr<MfxDecoder> decoder,
+                                       int client_id)
     : mRunning{true},
       mClientId(client_id),
       mClientFd(-1),
@@ -443,28 +443,42 @@ bool ClientCommunicator::clientThread() {
                             size = header.size;
                         }
 
+                        ALOGV("%s : Received encoded frame from client", __func__);
                         mSocketBufferSize = header.size;
+
                         ALOGVV("%s(%d): Camera session state: %s", __func__, mClientId,
                                kCameraSessionStateNames.at(mCameraSessionState).c_str());
                         switch (mCameraSessionState) {
                             case CameraSessionState::kCameraOpened:
                                 mCameraSessionState = CameraSessionState::kDecodingStarted;
                                 ALOGVV("%s(%d): Decoding started now.", __func__, mClientId);
-                            case CameraSessionState::kDecodingStarted:
+                            case CameraSessionState::kDecodingStarted: {
                                 if (mCameraBuffer == NULL) break;
                                 mCameraBuffer->clientRevCount++;
                                 ALOGVV("%s(%d): Received Payload #%d %zd/%u bytes", __func__, mClientId,
                                        mCameraBuffer->clientRevCount, size, header.size);
-                                mVideoDecoder->decode(mSocketBuffer.data(), mSocketBufferSize);
+
+                                mfxStatus ret = MFX_ERR_NONE;
+                                // Start decoding received frames.
+                                ret = mVideoDecoder->DecodeFrame(mSocketBuffer.data(),
+                                                                 mSocketBufferSize);
+                                if (ret == MFX_ERR_NONE) {
+                                    ALOGV("%s(%d): Decoding success! Now need to get the output",
+                                          __func__, mClientId);
+                                } else {
+                                    ALOGE("%s(%d): Decoding failed. ret = %d", __func__,
+                                          mClientId, ret);
+                                }
+
                                 mSocketBuffer.fill(0);
                                 break;
+                            }
                             case CameraSessionState::kCameraClosed:
-                                ALOGI("%s(%d): Decoding stopping and flushing decoder.", __func__, mClientId);
+                                ALOGI("%s(%d): Closing and releasing the decoder", __func__, mClientId);
                                 mCameraSessionState = CameraSessionState::kDecodingStopped;
-                                ALOGI("%s(%d): Decoding stopped now.", __func__, mClientId);
                                 break;
                             case CameraSessionState::kDecodingStopped:
-                                ALOGVV("%s(%d): Decoding is already stopped, skip the packets",
+                                ALOGVV("%s(%d): Decoder is already released, hence skip the client input",
                                        __func__, mClientId);
                                 mSocketBuffer.fill(0);
                                 break;

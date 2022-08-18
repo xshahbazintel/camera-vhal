@@ -30,7 +30,7 @@
 #include <future>
 #include <array>
 #include <chrono>
-#include "CGCodec.h"
+#include "onevpl-video-decode/MfxDecoder.h"
 #include "CameraSocketCommand.h"
 #include "ConnectionsListener.h"
 #include "VirtualBuffer.h"
@@ -41,12 +41,13 @@ class VirtualCameraFactory;
 class ClientCommunicator {
 public:
     ClientCommunicator(std::shared_ptr<ConnectionsListener> listener,
-                             std::shared_ptr<CGVideoDecoder> decoder,
-                             int client_id);
+                       std::shared_ptr<MfxDecoder> decoder,
+                       int client_id);
     ~ClientCommunicator();
 
     int getClientId();
-    status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size);
+    status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet,
+                                 size_t config_cmd_packet_size);
     std::atomic<socket::CameraSessionState> mCameraSessionState;
     std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
@@ -65,7 +66,7 @@ private:
     bool mIsConfigurationDone = false;
 
     std::shared_ptr<ConnectionsListener> mListener;
-    std::shared_ptr<CGVideoDecoder> mVideoDecoder;
+    std::shared_ptr<MfxDecoder> mVideoDecoder;
 
     // maximum size of a H264 packet in any aggregation packet is 65535 bytes.
     // Source: https://tools.ietf.org/html/rfc6184#page-13

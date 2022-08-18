@@ -12,88 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pass BUILD_CAMERA_VHAL=true in make parameter to compile camera vHAL
-ifeq ($(BUILD_CAMERA_VHAL), true)
-
 LOCAL_PATH := $(call my-dir)
-
-include $(CLEAR_VARS)
-
-####### Build FFmpeg modules from prebuilt libs #########
-
-FFMPEG_PREBUILD := prebuilts/ffmpeg-4.2.2/android-x86_64
-FFMPEG_LIB_PATH := ${FFMPEG_PREBUILD}/lib
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libavcodec
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB 				:= 64
-LOCAL_SRC_FILES 			:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libswresample
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libavutil
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB 				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libavdevice
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libavfilter
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libavformat
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE				:= libswscale
-LOCAL_CHECK_ELF_FILES                   := false
-LOCAL_MULTILIB				:= 64
-LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
-LOCAL_PROPRIETARY_MODULE	:= true
-LOCAL_MODULE_SUFFIX			:= .so
-LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
-include $(BUILD_PREBUILT)
-##########################################################
 
 include $(CLEAR_VARS)
 
@@ -119,15 +38,17 @@ camera_vhal_src := \
 	src/ClientCommunicator.cpp \
 	src/ConnectionsListener.cpp \
 	src/CameraSocketCommand.cpp \
-	src/CGCodec.cpp
+	src/onevpl-video-decode/MfxDecoder.cpp \
+	src/onevpl-video-decode/MfxFrameConstructor.cpp
 
 camera_vhal_c_includes := external/libjpeg-turbo \
 	external/libexif \
 	external/libyuv/files/include \
 	frameworks/native/include/media/hardware \
+	hardware/intel/libva \
+	hardware/intel/onevpl/api/vpl \
 	hardware/libhardware/modules/gralloc \
 	$(LOCAL_PATH)/include \
-	$(LOCAL_PATH)/$(FFMPEG_PREBUILD)/include \
 	$(call include-path-for, camera)
 
 camera_vhal_shared_libraries := \
@@ -140,22 +61,19 @@ camera_vhal_shared_libraries := \
     libcamera_metadata \
     libhardware \
     libsync \
-    libavcodec    \
-    libavdevice   \
-    libavfilter   \
-    libavformat   \
-    libavutil     \
-    libswresample \
-    libswscale
+    libvpl \
+    libva \
+    libva-android
 
 camera_vhal_static_libraries := \
 	android.hardware.camera.common@1.0-helper \
+	android.hardware.graphics.mapper@2.0 \
 	libyuv_static
 
 camera_vhal_module_relative_path := hw
 camera_vhal_cflags				 := -fno-short-enums -DREMOTE_HARDWARE
 camera_vhal_cflags				 += -Wno-unused-parameter -Wno-missing-field-initializers
-camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas -Wno-implicit-fallthrough
+camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas -Wno-implicit-fallthrough -Wno-deprecated
 
 ifeq ($(BOARD_USES_GRALLOC1), true)
 camera_vhal_cflags += -DUSE_GRALLOC1
@@ -219,4 +137,3 @@ include $(BUILD_SHARED_LIBRARY)
 
 ######################################################
 
-endif # BUILD_CAMERA_VHAL

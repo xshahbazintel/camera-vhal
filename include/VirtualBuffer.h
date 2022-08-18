@@ -25,7 +25,6 @@ namespace android {
 
 extern bool gIsInFrameI420;
 extern bool gIsInFrameH264;
-extern bool gUseVaapi;
 
 enum class VideoBufferType {
     kI420,

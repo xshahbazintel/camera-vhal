@@ -76,11 +76,11 @@
 #ifndef HW_EMULATOR_CAMERA2_SENSOR_H
 #define HW_EMULATOR_CAMERA2_SENSOR_H
 
+#define CHROMASTEP_NV12 2
+
 #include "utils/Thread.h"
 #include "utils/Mutex.h"
 #include "utils/Timers.h"
-#include "CGCodec.h"
-#include "CGLog.h"
 #include "VirtualBuffer.h"
 #include <mutex>
 #include <future>
@@ -88,6 +88,7 @@
 
 #include "Scene.h"
 #include "Base.h"
+#include "onevpl-video-decode/MfxDecoder.h"
 
 using namespace std::chrono_literals;
 
@@ -98,7 +99,7 @@ public:
     // width: Max width of client camera HW.
     // height: Max height of client camera HW.
     Sensor(uint32_t camera_id, uint32_t width, uint32_t height,
-           std::shared_ptr<CGVideoDecoder> decoder = nullptr,
+           std::shared_ptr<MfxDecoder> decoder = nullptr,
            std::shared_ptr<ClientVideoBuffer> cameraBuffer = nullptr);
     ~Sensor();
 
@@ -242,7 +243,7 @@ private:
     void captureDepthCloud(uint8_t *img);
     void dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_id,
                    const char *frame_type, uint32_t resolution, size_t frame_count);
-    bool getNV12Frames(uint8_t *out_buf, int *out_size, std::chrono::milliseconds timeout_ms = 5ms);
+    void getDecodedFrames(uint8_t *decoded_buf);
 
     // m_major_version 0: CPU 1: SG1
     uint8_t m_major_version = 1;
@@ -278,9 +279,8 @@ private:
     std::array<uint8_t, buffSize> mDstJpegTempBuf = {};
     std::array<uint8_t, buffSize> mDstJpegBuf = {};
 
-    std::shared_ptr<CGVideoDecoder> mDecoder = {};
+    std::shared_ptr<MfxDecoder> mDecoder = {};
     std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
-
 };
 }  // namespace android
 

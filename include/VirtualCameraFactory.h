@@ -29,7 +29,6 @@
 #include <memory>
 #include "CameraSocketCommand.h"
 #include "ClientCommunicator.h"
-#include "CGCodec.h"
 #include "VirtualBuffer.h"
 
 #define MAX_NUMBER_OF_SUPPORTED_CAMERAS 2  // Max restricted to two, but can be extended.
@@ -173,7 +172,7 @@ public:
     /*
      * Creates a virtual remote camera and adds it to mVirtualCameras.
      */
-    bool createVirtualRemoteCamera(std::shared_ptr<CGVideoDecoder> decoder,
+    bool createVirtualRemoteCamera(std::shared_ptr<MfxDecoder> decoder,
                                    int clientId,
                                    android::socket::camera_info_t cameraInfo);
 

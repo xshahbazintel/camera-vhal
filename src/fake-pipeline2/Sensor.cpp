@@ -26,7 +26,6 @@
 #endif
 
 #include "fake-pipeline2/Sensor.h"
-#include "CGCodec.h"
 #include <libyuv.h>
 #include <log/log.h>
 #include <cmath>
@@ -101,7 +100,7 @@ float sqrtf_approx(float r) {
 }
 
 Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height, 
-               std::shared_ptr<CGVideoDecoder> decoder,
+               std::shared_ptr<MfxDecoder> decoder,
                std::shared_ptr<ClientVideoBuffer> cameraBuffer)
     : Thread(false),
       mResolution{width, height},
@@ -468,44 +467,34 @@ void Sensor::dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_i
     }
 }
 
-bool Sensor::getNV12Frames(uint8_t *input_buf, int *camera_input_size,
-                           std::chrono::milliseconds timeout_ms /* default 5ms */) {
-    auto cg_video_frame = std::make_shared<CGVideoFrame>();
+void Sensor::getDecodedFrames(uint8_t *decoded_buf) {
     size_t retry_count = 0;
-    size_t maxRetryCount;
+    const size_t maxRetryCount = 5;
+    const std::chrono::milliseconds timeout_ms = 5ms;
+    YCbCrLayout frameLayoutNV12;
 
-    if (!gUseVaapi) {  // SW decoding
-        timeout_ms = 10ms;
-        maxRetryCount = 10;
-    } else {
-        maxRetryCount = 5;
-    }
+    frameLayoutNV12.y = decoded_buf;
+    frameLayoutNV12.yStride = mSrcWidth;
+    frameLayoutNV12.cb = decoded_buf + mSrcWidth * mSrcHeight;
+    frameLayoutNV12.cr = decoded_buf + mSrcWidth * mSrcHeight + 1;
+    frameLayoutNV12.cStride = mSrcWidth;
+    frameLayoutNV12.chromaStep = CHROMASTEP_NV12;
 
     do {
-        int ret = mDecoder->get_decoded_frame(cg_video_frame);
-        if (ret == 0) {  // success
-            ALOGVV("%s frames are decoded", __func__);
+        bool has_output = mDecoder->GetOutput(frameLayoutNV12);
+        if (has_output) {
+            ALOGV("%s: Decoded frame received successfully!!!", __func__);
             break;
-        } else if (retry_count++ <= maxRetryCount) {  // decoded frames are not ready
-            ALOGVV("%s retry #%zu get_decoded_frame() not ready, lets wait for %zums", __func__,
-                   retry_count, size_t(timeout_ms.count()));
+        } else if (retry_count++ <= maxRetryCount) {
+            ALOGV("%s: Decoded frame is not yet ready, wait for 5ms", __func__);
             std::this_thread::sleep_for(timeout_ms);
             continue;
-        } else if (retry_count > maxRetryCount) {
-            ALOGE(
-                "%s Failed to get decoded frames even after retrying %zu times with total timeout "
-                "of %zums",
-                __func__, (retry_count - 1), (retry_count - 1) * size_t(timeout_ms.count()));
-            return false;
+	} else {
+            ALOGW("%s: Decoded frame is not available since no input frame received from client",
+                  __func__);
+            break;
         }
     } while (true);
-
-    cg_video_frame->copy_to_buffer(input_buf, camera_input_size);
-    ALOGVV("%s converted to format: %s size: %d \n", __FUNCTION__,
-           cg_video_frame->format() == NV12 ? "NV12" : "I420", *camera_input_size);
-    ALOGVV("%s decoded buffers are copied", __func__);
-
-    return true;
 }
 
 void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
@@ -530,7 +519,7 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             ALOGVV("%s - Already Decoded Camera Input Frame..", __FUNCTION__);
         } else {  // This is the default condition in all apps.
                   // To get the decoded frame.
-            getNV12Frames(bufData, &cameraInputDataSize);
+            getDecodedFrames(bufData);
             mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             mCameraBuffer->decodedFrameNo++;
@@ -768,7 +757,7 @@ void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             ALOGVV("%s - Already Decoded Camera Input frame..", __FUNCTION__);
         } else {
             // To get the decoded frame for the apps which doesn't have RGBA preview.
-            getNV12Frames(bufData, &cameraInputDataSize);
+            getDecodedFrames(bufData);
             mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             mCameraBuffer->decodedFrameNo++;
@@ -979,7 +968,7 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
             ALOGVV("%s - Already Decoded Camera Input frame", __FUNCTION__);
         } else {
             // To get the decoded frame.
-            getNV12Frames(bufData, &cameraInputDataSize);
+            getDecodedFrames(bufData);
             mCameraBuffer->clientBuf.decoded = true;
             std::unique_lock<std::mutex> ulock(client_buf_mutex);
             mCameraBuffer->decodedFrameNo++;

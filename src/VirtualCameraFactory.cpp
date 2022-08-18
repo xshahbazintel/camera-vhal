@@ -27,7 +27,7 @@
 #include "VirtualCameraFactory.h"
 #include "VirtualFakeCamera3.h"
 #include "ClientCommunicator.h"
-#include "CGCodec.h"
+#include "onevpl-video-decode/MfxDecoder.h"
 
 #include <log/log.h>
 #include <cutils/properties.h>
@@ -44,7 +44,6 @@ namespace android {
 
 bool gIsInFrameI420;
 bool gIsInFrameH264;
-bool gUseVaapi;
 
 void VirtualCameraFactory::readSystemProperties() {
     char prop_val[PROPERTY_VALUE_MAX] = {'\0'};
@@ -54,9 +53,6 @@ void VirtualCameraFactory::readSystemProperties() {
 
     property_get("ro.vendor.camera.in_frame_format.i420", prop_val, "false");
     gIsInFrameI420 = !strcmp(prop_val, "true");
-
-    property_get("ro.vendor.camera.decode.vaapi", prop_val, "false");
-    gUseVaapi = !strcmp(prop_val, "true");
 
     mNumClients = 1;
     if (property_get("ro.concurrent.user.num", prop_val, "") > 0){
@@ -70,8 +66,8 @@ void VirtualCameraFactory::readSystemProperties() {
             ALOGE("%s: Invalid request(%d), please check it again", __FUNCTION__, mNumClients);
         }
     }
-    ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, gUseVaapi: %d, mNumClients: %d",
-          __func__, gIsInFrameH264, gIsInFrameI420, gUseVaapi, mNumClients);
+    ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, mNumClients: %d",
+          __func__, gIsInFrameH264, gIsInFrameI420, mNumClients);
 }
 
 VirtualCameraFactory::VirtualCameraFactory()
@@ -92,11 +88,11 @@ VirtualCameraFactory::VirtualCameraFactory()
     for(int id = 0; id < mNumClients; id++)
     {
         // NV12 Decoder
-        std::shared_ptr<CGVideoDecoder> decoder;
+        std::shared_ptr<MfxDecoder> decoder;
         if (gIsInFrameH264) {
             // create decoder
             ALOGV("%s Creating decoder.", __func__);
-            decoder = std::make_shared<CGVideoDecoder>();
+            decoder = std::make_shared<MfxDecoder>();
         }
         auto client_thread = std::make_shared<ClientCommunicator>(mSocketListener, decoder, id);
         mClientThreads[id] = client_thread;
@@ -256,7 +252,7 @@ void VirtualCameraFactory::clearCameraInfo(int clientId){
  *******************************************************************************/
 
 bool VirtualCameraFactory::createVirtualRemoteCamera(
-    std::shared_ptr<CGVideoDecoder> decoder,
+    std::shared_ptr<MfxDecoder> decoder,
     int clientId,
     android::socket::camera_info_t cameraInfo) {
     ALOGV("%s: E", __FUNCTION__);

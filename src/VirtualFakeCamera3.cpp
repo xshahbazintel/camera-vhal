@@ -93,7 +93,7 @@ const float VirtualFakeCamera3::kExposureWanderMax = 1;
 
 VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                                        std::shared_ptr<ClientCommunicator> client_thread,
-                                       std::shared_ptr<CGVideoDecoder> decoder,
+                                       std::shared_ptr<MfxDecoder> decoder,
                                        android::socket::camera_info_t clientCameraInfo)
     : VirtualCamera3(cameraId, module),
       mClientThread(client_thread),
@@ -232,18 +232,15 @@ status_t VirtualFakeCamera3::connectCamera() {
     ALOGI(LOG_TAG "%s: E", __FUNCTION__);
 
     if (gIsInFrameH264) {
-        const char *device_name = gUseVaapi ? "vaapi" : nullptr;
-
         mDecoderResolution = setDecoderResolution(mSrcHeight);
         // initialize decoder
-        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, mCodecType,
-                           device_name, 0) < 0) {
-            ALOGE("%s VideoDecoder init failed. %s decoding", __func__,
-                  !device_name ? "SW" : device_name);
-        } else {
+        mfxStatus ret = MFX_ERR_NONE;
+        ret = mDecoder->Init(mCodecType, mSrcWidth, mSrcHeight);
+        if (ret == MFX_ERR_NONE) {
             mDecoderInitDone = true;
-            ALOGI("%s VideoDecoder init done. Device: %s", __func__,
-                  !device_name ? "SW" : device_name);
+            ALOGI("%s Video decoder init success!!!", __func__);
+        } else {
+            ALOGE("%s Video decoder init failed", __func__);
         }
     }
 
@@ -326,8 +323,7 @@ status_t VirtualFakeCamera3::closeCamera() {
     if (gIsInFrameH264) {
         // Set state to CameraClosed, so that ClientCommunicator stops decoding.
         mClientThread->mCameraSessionState = socket::CameraSessionState::kCameraClosed;
-        mDecoder->flush_decoder();
-        mDecoder->destroy();
+        mDecoder->Release();
         ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
     }
 
