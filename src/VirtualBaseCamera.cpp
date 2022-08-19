@@ -61,6 +61,12 @@ status_t VirtualBaseCamera::getCameraInfo(struct camera_info *info) {
     return NO_ERROR;
 }
 
+status_t  VirtualBaseCamera::setTorchMode(const char* camera_id, bool enable){
+    ALOGV("%s", __FUNCTION__);
+
+    return OK;
+}
+
 status_t VirtualBaseCamera::setCameraFD(int socketFd) {
     mCameraSocketFD = socketFd;
     ALOGV("%s mCameraSocketFD = %d", __FUNCTION__, mCameraSocketFD);

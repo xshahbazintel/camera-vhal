@@ -85,19 +85,20 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t Initialize(const char *device_name, const char *frame_dims,
-                                const char *facing_dir);
+    virtual status_t Initialize();
 
     /****************************************************************************
      * Camera module API and generic hardware device API implementation
      ***************************************************************************/
 
 public:
-    virtual status_t connectCamera(hw_device_t **device);
+    virtual status_t openCamera(hw_device_t **device);
 
     virtual status_t closeCamera();
 
     virtual status_t getCameraInfo(struct camera_info *info);
+    
+    virtual status_t setTorchMode(const char* camera_id, bool enable); 
 
     /****************************************************************************
      * Camera API implementation.

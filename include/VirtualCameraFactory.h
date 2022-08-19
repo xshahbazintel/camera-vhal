@@ -26,7 +26,11 @@
 #include <vector>
 #include <memory>
 #include "CameraSocketServerThread.h"
+#ifdef ENABLE_FFMPEG
 #include "CGCodec.h"
+#endif
+
+#define MAX_NUMBER_OF_SUPPORTED_CAMERAS 2  // Max restricted to two, but can be extended.
 
 namespace android {
 
@@ -90,6 +94,13 @@ public:
      * callback.
      */
     int getCameraInfo(int camera_id, struct camera_info *info);
+/*
+     * Gets virtual camera torch mode support.
+     *
+     * This method is called in response to camera_module_t::isSetTorchModeSupported
+     * callback.
+     */
+    int setTorchMode(const char* camera_id, bool enable); 
 
     /*
      * Sets virtual camera callbacks.
@@ -122,6 +133,12 @@ public:
      */
     static int get_camera_info(int camera_id, struct camera_info *info);
 
+
+    /*
+     * camera_module_t::get_torch_support_info callback entry point.
+     */
+    static int set_torch_mode(const char* camera_id, bool enable); 
+
     /*
      * camera_module_t::set_callbacks callback entry point.
      */
@@ -150,18 +167,9 @@ public:
      ***************************************************************************/
 
     /*
-     * Gets fake camera orientation.
+     * Gets number of virtual remote cameras.
      */
-    int getFakeCameraOrientation() {
-        const char *key    = "remote.camera.fake.orientation";
-        int         degree = property_get_int32(key, 90);
-        return degree;
-    }
-
-    /*
-     * Gets number of virtual cameras.
-     */
-    int getVirtualCameraNum() const { return mVirtualCameraNum; }
+    int getVirtualCameraNum() const { return mNumOfCamerasSupported; }
 
     /*
      * Checks whether or not the constructor has succeeded.
@@ -174,12 +182,15 @@ private:
      ***************************************************************************/
 
     /*
-     * Creates a fake camera and adds it to mVirtualCameras. If backCamera is
-     * true, it will be created as if it were a camera on the back of the phone.
-     * Otherwise, it will be front-facing.
+     * Creates a virtual remote camera and adds it to mVirtualCameras.
      */
-    void createFakeCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                          std::shared_ptr<CGVideoDecoder> decoder, bool backCamera);
+#ifdef ENABLE_FFMPEG
+    void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
+                                   std::shared_ptr<CGVideoDecoder> decoder, int cameraId);
+#else
+void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
+                                  int cameraId);
+#endif
     /*
      * Waits till remote-props has done setup, timeout after 500ms.
      */
@@ -206,11 +217,8 @@ private:
     // Array of cameras available for the emulation.
     VirtualBaseCamera **mVirtualCameras;
 
-    // Number of virtual cameras (including the fake ones).
-    int mVirtualCameraNum;
-
-    // Number of virtual fake cameras.
-    int mFakeCameraNum;
+    // Number of cameras supported in the HAL based on client request.
+    int mNumOfCamerasSupported;
 
     // Flags whether or not constructor has succeeded.
     bool mConstructedOK;
@@ -222,14 +230,22 @@ public:
     // Contains device open entry point, as required by HAL API.
     static struct hw_module_methods_t mCameraModuleMethods;
 
+    pthread_cond_t mSignalCapRead = PTHREAD_COND_INITIALIZER;
+    pthread_mutex_t mCapReadLock = PTHREAD_MUTEX_INITIALIZER;
 private:
+#ifdef ENABLE_FFMPEG
     // NV12 Decoder
     std::shared_ptr<CGVideoDecoder> mDecoder;
-
+#endif
     // Socket server
     std::shared_ptr<CameraSocketServerThread> mSocketServer;
-
+#ifdef ENABLE_FFMPEG
+    // NV12 Decoder
+    std::shared_ptr<CGVideoDecoder> mDecoder;
     bool createSocketServer(std::shared_ptr<CGVideoDecoder> decoder);
+#else
+    bool createSocketServer();
+#endif
 };
 
 };  // end of namespace android

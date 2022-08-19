@@ -17,6 +17,7 @@
 #ifndef CG_CODEC_H
 #define CG_CODEC_H
 
+#include <mutex>
 #include <fstream>
 #include <memory>
 #include <stdlib.h>
@@ -57,13 +58,6 @@ public:
 
     CGPixelFormat format();
 
-    /*
-     * Copy frame data to data block buffer
-     * @param buffer[out]: destination buffer, should be freed by caller
-     * @param size[out]: output buffer size
-     * */
-    int copy_to_buffer(uint8_t **buffer /* out */, int *size /* out */);
-
     int copy_to_buffer(uint8_t *buffer /* out */, int *size /* out */);
 
 private:
@@ -96,9 +90,12 @@ typedef std::unique_ptr<HWAccelContext, HWAccelContextDeleter> CGHWAccelContex;
 
 class CGVideoDecoder {
 public:
-    CGVideoDecoder(){};
-    CGVideoDecoder(int codec_type, int resolution_type, const char *device_name = nullptr,
-                   int extra_hw_frames = 0);
+    CGVideoDecoder() {
+        codec_type = int(android::socket::VideoCodecType::kH264);
+        resolution = android::socket::FrameResolution::k480p;
+        device_name = NULL;
+    }
+
     virtual ~CGVideoDecoder();
 
     /**
@@ -109,13 +106,12 @@ public:
 
     /**
      * Initialize the CGVideoDecoder
-     * @param codec_type        see @enum camera_video_codec_t in @file cg_protocol.h
      * @param resolution_type   see @enum camera_video_resolution_t in @file cg_protocol.h
      * @param device_name       the string of hardware acclerator device, such as "vaapi"
      * @param extra_hw_frames   allocate extra frames for hardware acclerator when decoding
      */
-    int init(android::socket::VideoCodecType codec_type, android::socket::FrameResolution resolution_type, const char *device_name = nullptr,
-             int extra_hw_frames = 0);
+    int init(android::socket::FrameResolution resolution, uint32_t codec_type,
+             const char *device_name = nullptr, int extra_hw_frames = 0);
 
     /**
      * Send a piece of ES stream data to decoder, the data must have a padding with a lengh
@@ -151,10 +147,15 @@ private:
     CGDecContex m_decode_ctx;        ///<! cg decoder internal context
     CGHWAccelContex m_hw_accel_ctx;  ///<! hw decoding accelerator context
     int decode_one_frame(const AVPacket *pkt);
-    bool init_failed_ = false;
+    bool decoder_ready = false;
+    std::recursive_mutex pull_lock;  // Guard m_decode_ctx at get_decoded_frame
+    std::recursive_mutex push_lock;  // Guard m_decode_ctx at decode/decode_one_frame
 
     CGVideoDecoder(const CGVideoDecoder &cg_video_decoder);
     CGVideoDecoder &operator=(const CGVideoDecoder &) { return *this; }
+    uint32_t codec_type;
+    android::socket::FrameResolution resolution;
+    const char *device_name;
 };
 
 #endif  // CG_CODEC_H

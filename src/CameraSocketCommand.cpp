@@ -30,5 +30,46 @@ const std::unordered_map<CameraSessionState, std::string> kCameraSessionStateNam
     {CameraSessionState::kCameraClosed, "Camera closed"},
     {CameraSessionState::kDecodingStopped, "Decoding stopped"},
 };
+
+const char* camera_type_to_str(int type) {
+    switch (type) {
+        case REQUEST_CAPABILITY:
+            return "REQUEST_CAPABILITY";
+        case CAPABILITY:
+            return "CAPABILITY";
+        case CAMERA_CONFIG:
+            return "CAMERA_CONFIG";
+        case CAMERA_DATA:
+            return "CAMERA_DATA";
+        case ACK:
+            return "ACK";
+        default:
+            return "invalid";
+    }
 }
+
+const char* codec_type_to_str(uint32_t type) {
+    switch (type) {
+        case int(android::socket::VideoCodecType::kH264):
+            return "H264";
+        case int(android::socket::VideoCodecType::kH265):
+            return "H265";
+        default:
+            return "invalid";
+    }
+}
+
+const char* resolution_to_str(uint32_t resolution) {
+    switch (resolution) {
+        case int(android::socket::FrameResolution::k480p):
+            return "480p";
+        case int(android::socket::FrameResolution::k720p):
+            return "720p";
+        case int(android::socket::FrameResolution::k1080p):
+            return "1080p";
+        default:
+            return "invalid";
+    }
+}
+}  // namespace socket
 }  // namespace android

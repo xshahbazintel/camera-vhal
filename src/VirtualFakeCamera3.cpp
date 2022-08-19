@@ -22,6 +22,7 @@
 #include <inttypes.h>
 
 //#define LOG_NNDEBUG 0
+#define LOG_NDEBUG 0
 #define LOG_TAG "VirtualFakeCamera3: "
 #include <cutils/properties.h>
 #include <log/log.h>
@@ -40,20 +41,23 @@
 #include <thread>
 #include <vector>
 #include "VirtualBuffer.h"
-
 #if defined(LOG_NNDEBUG) && LOG_NNDEBUG == 0
 #define ALOGVV ALOGV
 #else
 #define ALOGVV(...) ((void)0)
 #endif
 
-#define MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION 12 //12ms
-
 using namespace std;
 using namespace chrono;
 using namespace chrono_literals;
-
+buffer_handle_t bufferHandle;
+buffer_handle_t bufferHandle1;
+buffer_handle_t bufferHandle2;
+buffer_handle_t bufferHandle_3;
 namespace android {
+
+int32_t gSrcWidth;
+int32_t gSrcHeight;
 
 using namespace socket;
 /**
@@ -63,18 +67,13 @@ using namespace socket;
 const int64_t USEC = 1000LL;
 const int64_t MSEC = USEC * 1000LL;
 
-const int32_t VirtualFakeCamera3::kAvailableFormats[] = {
-    HAL_PIXEL_FORMAT_RAW16, HAL_PIXEL_FORMAT_BLOB, HAL_PIXEL_FORMAT_RGBA_8888,
-    HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-    // These are handled by YCbCr_420_888
-    //        HAL_PIXEL_FORMAT_YV12,
-    //        HAL_PIXEL_FORMAT_YCrCb_420_SP,
-    HAL_PIXEL_FORMAT_YCbCr_420_888, HAL_PIXEL_FORMAT_Y16};
-
-const uint32_t VirtualFakeCamera3::kAvailableRawSizes[4] = {
-    640, 480,
-    // 1280, 720
-    //    mSensorWidth, mSensorHeight
+const int32_t VirtualFakeCamera3::kHalSupportedFormats[] = {
+    HAL_PIXEL_FORMAT_BLOB,
+    HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,  // defined as RGB32
+    HAL_PIXEL_FORMAT_RGBA_8888,               // RGB32
+    HAL_PIXEL_FORMAT_YCbCr_420_888,           // NV12
+    HAL_PIXEL_FORMAT_YCrCb_420_SP,            // NV21
+    // HAL_PIXEL_FORMAT_YV12 /* Not supporting now*/
 };
 
 /**
@@ -96,18 +95,24 @@ const float VirtualFakeCamera3::kExposureWanderMax = 1;
 /**
  * Camera device lifecycle methods
  */
-
-VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_module_t *module,
+#ifdef ENABLE_FFMPEG
+VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                                        std::shared_ptr<CameraSocketServerThread> socket_server,
                                        std::shared_ptr<CGVideoDecoder> decoder,
                                        std::atomic<CameraSessionState> &state)
     : VirtualCamera3(cameraId, module),
-      mFacingBack(facingBack),
       mSocketServer(socket_server),
       mDecoder(decoder),
       mCameraSessionState{state} {
-    ALOGI("Constructing virtual fake camera 3: ID %d, facing %s", mCameraID,
-          facingBack ? "back" : "front");
+#else
+VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
+                                       std::shared_ptr<CameraSocketServerThread> socket_server,
+                                       std::atomic<CameraSessionState> &state)
+    : VirtualCamera3(cameraId, module),
+      mSocketServer(socket_server),
+     mCameraSessionState{state} {
+#endif
+    ALOGI("Constructing virtual fake camera 3: for ID %d", mCameraID);
 
     mControlMode = ANDROID_CONTROL_MODE_AUTO;
     mFacePriority = false;
@@ -121,9 +126,18 @@ VirtualFakeCamera3::VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_
     mAeTargetExposureTime = kNormalExposureTime;
     mAeCurrentExposureTime = kNormalExposureTime;
     mAeCurrentSensitivity = kNormalSensitivity;
-    mSensorWidth = 640;
-    mSensorHeight = 480;
+    mSensorWidth = 0;
+    mSensorHeight = 0;
+    mSrcWidth = gCameraMaxWidth;
+    mSrcHeight = gCameraMaxHeight;
+    mCodecType = 0;
+    mDecoderResolution = 0;
+    mFacingBack = false;
+    mDecoderInitDone = false;
     mInputStream = NULL;
+    mSensor = NULL;
+    mReadoutThread = NULL;
+    mJpegCompressor = NULL;
 }
 
 VirtualFakeCamera3::~VirtualFakeCamera3() {
@@ -134,8 +148,7 @@ VirtualFakeCamera3::~VirtualFakeCamera3() {
     }
 }
 
-status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *frame_dims,
-                                        const char *facing_dir) {
+status_t VirtualFakeCamera3::Initialize() {
     ALOGVV("%s: E", __FUNCTION__);
     status_t res;
 
@@ -156,60 +169,120 @@ status_t VirtualFakeCamera3::Initialize(const char *device_name, const char *fra
         return res;
     }
 
-    return VirtualCamera3::Initialize(nullptr, nullptr, nullptr);
+    return VirtualCamera3::Initialize();
 }
 
-status_t VirtualFakeCamera3::sendCommandToClient(socket::CameraOperation operation) {
+status_t VirtualFakeCamera3::openCamera(hw_device_t **device) {
+    ALOGI(LOG_TAG "%s: E", __FUNCTION__);
+    Mutex::Autolock l(mLock);
+
+    return VirtualCamera3::openCamera(device);
+}
+
+uint32_t VirtualFakeCamera3::setDecoderResolution(uint32_t resolution) {
+    ALOGVV(LOG_TAG "%s: E", __FUNCTION__);
+    uint32_t res = 0;
+    switch (resolution) {
+        case DECODER_SUPPORTED_RESOLUTION_480P:
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_720P:
+            res = (uint32_t)FrameResolution::k720p;
+            break;
+        case DECODER_SUPPORTED_RESOLUTION_1080P:
+            res = (uint32_t)FrameResolution::k1080p;
+            break;
+        default:
+            ALOGI("%s: Selected default 480p resolution!!!", __func__);
+            res = (uint32_t)FrameResolution::k480p;
+            break;
+    }
+
+    ALOGI("%s: Resolution selected for decoder init is %s", __func__, resolution_to_str(res));
+    return res;
+}
+status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
-    socket::CameraConfig camera_config = {};
-    camera_config.operation = operation;
+    status_t status = INVALID_OPERATION;
+    size_t config_cmd_packet_size = sizeof(camera_header_t) + sizeof(camera_config_cmd_t);
+    camera_config_cmd_t config_cmd = {};
+    config_cmd.version = CAMERA_VHAL_VERSION_2;
+    config_cmd.cmd = cmd;
+    config_cmd.config.cameraId = mCameraID;
+    config_cmd.config.codec_type = mCodecType;
+    config_cmd.config.resolution = mDecoderResolution;
+
+    camera_packet_t *config_cmd_packet = NULL;
 
     int client_fd = mSocketServer->getClientFd();
     if (client_fd < 0) {
         ALOGE("%s: We're not connected to client yet!", __FUNCTION__);
-        return INVALID_OPERATION;
-    }
-    ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
-    if (send(client_fd, &camera_config, sizeof(camera_config), 0) < 0) {
-        ALOGE(LOG_TAG "%s: Failed to send Camera Open command to client, err %s ", __FUNCTION__,
-              strerror(errno));
-        return INVALID_OPERATION;
+        return status;
     }
 
-    std::string cmd_str =
-        (operation == socket::CameraOperation::kClose) ? "CloseCamera" : "OpenCamera";
-    ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__, cmd_str.c_str(), client_fd);
-    return OK;
+    config_cmd_packet = (camera_packet_t *)malloc(config_cmd_packet_size);
+    if (config_cmd_packet == NULL) {
+        ALOGE(LOG_TAG "%s: config camera_packet_t allocation failed: %d ", __FUNCTION__, __LINE__);
+        goto out;
+    }
+
+    config_cmd_packet->header.type = CAMERA_CONFIG;
+    config_cmd_packet->header.size = sizeof(camera_config_cmd_t);
+    memcpy(config_cmd_packet->payload, &config_cmd, sizeof(camera_config_cmd_t));
+
+    ALOGI("%s: Camera client fd %d!", __FUNCTION__, client_fd);
+    if (send(client_fd, config_cmd_packet, config_cmd_packet_size, 0) < 0) {
+        ALOGE(LOG_TAG "%s: Failed to send Camera %s command to client, err %s ", __FUNCTION__,
+              (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", strerror(errno));
+        goto out;
+    }
+
+    ALOGI("%s: Sent cmd %s to client %d!", __FUNCTION__,
+          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", client_fd);
+    status = OK;
+out:
+    free(config_cmd_packet);
+    return status;
 }
 
-status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
+status_t VirtualFakeCamera3::connectCamera() {
     ALOGI(LOG_TAG "%s: E", __FUNCTION__);
-    Mutex::Autolock l(mLock);
 
     if (gIsInFrameH264) {
         const char *device_name = gUseVaapi ? "vaapi" : nullptr;
+#ifdef ENABLE_FFMPEG
         // initialize decoder
-        if (mDecoder->init(VideoCodecType::kH264, FrameResolution::k480p, device_name, 0) < 0) {
+        if (mDecoder->init((android::socket::FrameResolution)mDecoderResolution, mCodecType,
+                           device_name, 0) < 0) {
             ALOGE("%s VideoDecoder init failed. %s decoding", __func__,
                   !device_name ? "SW" : device_name);
         } else {
+            mDecoderInitDone = true;
             ALOGI("%s VideoDecoder init done. Device: %s", __func__,
                   !device_name ? "SW" : device_name);
         }
+#endif
     }
+    else 
+         mDecoderInitDone = true;
 
     ALOGI("%s Calling sendCommandToClient", __func__);
     status_t ret;
-    if ((ret = sendCommandToClient(socket::CameraOperation::kOpen)) != OK) {
+    if ((ret = sendCommandToClient(camera_cmd_t::CMD_OPEN)) != OK) {
         ALOGE("%s sendCommandToClient failed", __func__);
         return ret;
     }
     ALOGI("%s Called sendCommandToClient", __func__);
-    mCameraSessionState = socket::CameraSessionState::kCameraOpened;
-
+    mCameraSessionState = CameraSessionState::kCameraOpened;
+    mSrcWidth = gCameraMaxWidth;
+    mSrcHeight = gCameraMaxHeight;
     // create sensor who gets decoded frames and forwards them to framework
-    mSensor = new Sensor(mSensorWidth, mSensorHeight, mDecoder);
+#ifdef ENABLE_FFMPEG
+    mSensor = new Sensor(mSrcWidth, mSrcHeight, mDecoder);
+#else
+ mSensor = new Sensor(mSrcWidth, mSrcHeight);
+#endif
     mSensor->setSensorListener(this);
 
     status_t res = mSensor->startUp();
@@ -236,7 +309,7 @@ status_t VirtualFakeCamera3::connectCamera(hw_device_t **device) {
     mAeCurrentExposureTime = kNormalExposureTime;
     mAeCurrentSensitivity = kNormalSensitivity;
 
-    return VirtualCamera3::connectCamera(device);
+    return OK;
 }
 
 /**
@@ -260,8 +333,11 @@ status_t VirtualFakeCamera3::closeCamera() {
         ALOGE(LOG_TAG " %s: wait:..", __FUNCTION__);
         std::this_thread::sleep_for(2500ms);
     }
-
     mprocessCaptureRequestFlag = false;
+
+    if (mSensor == NULL) {
+        return VirtualCamera3::closeCamera();
+    }
 
     {
         Mutex::Autolock l(mLock);
@@ -270,7 +346,6 @@ status_t VirtualFakeCamera3::closeCamera() {
         auto ret = mSensor->shutDown();
         if (ret != NO_ERROR) {
             ALOGE("%s: Unable to shut down sensor: %d", __FUNCTION__, ret);
-            return ret;
         }
         mSensor.clear();
 
@@ -293,37 +368,45 @@ status_t VirtualFakeCamera3::closeCamera() {
 
     ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
     handle->reset();
-    ALOGI("%s VideoBuffers are reset", __func__);
-
-    // Set state to CameraClosed, so that SocketServerThread stops decoding.
-    mCameraSessionState = socket::CameraSessionState::kCameraClosed;
+    ALOGI("%s: Camera input buffers are reset", __func__);
 
     if (gIsInFrameH264) {
-        int waitForCameraClose = 0;
-        while (mCameraSessionState != socket::CameraSessionState::kDecodingStopped) {
-            std::this_thread::sleep_for(2ms);
-            waitForCameraClose += 2; // 2 corresponds to 2ms
-            if (waitForCameraClose == MAX_TIMEOUT_FOR_CAMERA_CLOSE_SESSION)
-                break;
-	}
+        // Set state to CameraClosed, so that SocketServerThread stops decoding.
+        mCameraSessionState = socket::CameraSessionState::kCameraClosed;
+#ifdef ENABLE_FFMPEG
+        mDecoder->flush_decoder();
+        mDecoder->destroy();
+#endif
         ALOGI("%s Decoding is stopped, now send CLOSE command to client", __func__);
     }
 
     // Send close command to client
-    status_t ret = sendCommandToClient(socket::CameraOperation::kClose);
+    status_t ret = sendCommandToClient(camera_cmd_t::CMD_CLOSE);
     if (ret != OK) {
         ALOGE("%s sendCommandToClient failed", __func__);
-        return ret;
     }
 
+    // Set NULL or Zero to some local members which would be updated in the
+    // next configure_streams call to support Dynamic multi-resolution.
+    mSrcWidth = 0;
+    mSrcHeight = 0;
+    mDecoderResolution = 0;
+    mDecoderInitDone = false;
+    mSensor = NULL;
+    mReadoutThread = NULL;
+    mJpegCompressor = NULL;
+    mSocketServer->size_update = 0;
     return VirtualCamera3::closeCamera();
 }
 
 status_t VirtualFakeCamera3::getCameraInfo(struct camera_info *info) {
-    info->facing = mFacingBack ? CAMERA_FACING_BACK : CAMERA_FACING_FRONT;
-    info->orientation = gVirtualCameraFactory.getFakeCameraOrientation();
     return VirtualCamera3::getCameraInfo(info);
 }
+
+status_t  VirtualFakeCamera3::setTorchMode(const char* camera_id, bool enable){
+    return VirtualCamera3::setTorchMode(camera_id,enable);
+}
+
 
 /**
  * Camera3 interface methods
@@ -331,6 +414,7 @@ status_t VirtualFakeCamera3::getCameraInfo(struct camera_info *info) {
 
 status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *streamList) {
     Mutex::Autolock l(mLock);
+    status_t res;
 
     if (mStatus != STATUS_OPEN && mStatus != STATUS_READY) {
         ALOGE("%s: Cannot configure streams in state %d", __FUNCTION__, mStatus);
@@ -368,9 +452,9 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
 
         ALOGI(
             " %s: Stream %p (id %zu), type %d, usage 0x%x, format 0x%x "
-            "width %d, height %d",
+            "width %d, height %d, rotation %d",
             __FUNCTION__, newStream, i, newStream->stream_type, newStream->usage, newStream->format,
-            newStream->width, newStream->height);
+            newStream->width, newStream->height, newStream->rotation);
 
         if (newStream->stream_type == CAMERA3_STREAM_INPUT ||
             newStream->stream_type == CAMERA3_STREAM_BIDIRECTIONAL) {
@@ -399,8 +483,9 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
         }
 
         bool validFormat = false;
-        for (size_t f = 0; f < sizeof(kAvailableFormats) / sizeof(kAvailableFormats[0]); f++) {
-            if (newStream->format == kAvailableFormats[f]) {
+        for (size_t f = 0; f < sizeof(kHalSupportedFormats) / sizeof(kHalSupportedFormats[0]);
+             f++) {
+            if (newStream->format == kHalSupportedFormats[f]) {
                 validFormat = true;
                 break;
             }
@@ -409,14 +494,26 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
             ALOGE("%s: Unsupported stream format 0x%x requested", __FUNCTION__, newStream->format);
             return BAD_VALUE;
         }
+
+        if (mSrcWidth < newStream->width && mSrcHeight < newStream->height) {
+            // Update app's res request to local variable.
+            mSrcWidth = newStream->width;
+            mSrcHeight = newStream->height;
+            // Update globally for clearing used buffers properly.
+            gSrcWidth = mSrcWidth;
+            gSrcHeight = mSrcHeight;
+        }
     }
     mInputStream = inputStream;
+
+    ALOGI("%s: Camera current input resolution is %dx%d", __FUNCTION__, mSrcWidth, mSrcHeight);
 
     /**
      * Initially mark all existing streams as not alive
      */
     for (StreamIterator s = mStreams.begin(); s != mStreams.end(); ++s) {
         PrivateStreamInfo *privStream = static_cast<PrivateStreamInfo *>((*s)->priv);
+        if(privStream != NULL) 
         privStream->alive = false;
     }
 
@@ -448,7 +545,11 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
                 newStream->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
                 ALOGE("%s: GRALLOC0", __FUNCTION__);
 #else
-                ALOGE("%s: GRALLOC1", __FUNCTION__);
+                newStream->usage |= GRALLOC_USAGE_SW_WRITE_OFTEN;
+                ALOGE("%s: GRALLOC1 GRALLOC_USAGE_SW_WRITE_OFTEN", __FUNCTION__);
+                 //WA: configure usage when requrested for buffer overlay, WA provided during vts run
+                  // cases of configure single stream and flush 
+                //   newStream->usage = 0x100;
 #endif
                 break;
             case CAMERA3_STREAM_INPUT:
@@ -463,11 +564,17 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
 #ifndef USE_GRALLOC1
             if (newStream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
 #endif
-                if (newStream->usage & GRALLOC_USAGE_HW_TEXTURE) {
+                if ((newStream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+                    (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
+                    // Both preview and video capture output format would
+                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
                     newStream->format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else if (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
-                    newStream->format = HAL_PIXEL_FORMAT_YCbCr_420_888;
-                } else {
+                }
+				 //TODO: present in old VHAL, need to check video usecase
+				 //else if (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
+                   // newStream->format = HAL_PIXEL_FORMAT_YCbCr_420_888;
+                //}
+				else {
                     newStream->format = HAL_PIXEL_FORMAT_RGB_888;
                 }
 #ifndef USE_GRALLOC1
@@ -494,6 +601,23 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
      * Can't reuse settings across configure call
      */
     mPrevSettings.clear();
+
+    /**
+     * Initialize Camera sensor and Input decoder based on app's res request.
+     */
+    if (!mDecoderInitDone) {
+        ALOGI("%s: Initializing decoder and sensor for new resolution request!!!", __func__);
+        res = connectCamera();
+        if (res != OK) {
+            return res;
+        }
+
+        // Fill the input buffer with black frame to avoid green frame
+        // while changing the resolution in each request.
+        ClientVideoBuffer *handle = ClientVideoBuffer::getClientInstance();
+        handle->clearBuffer();
+    }
+
     return OK;
 }
 
@@ -833,10 +957,9 @@ const camera_metadata_t *VirtualFakeCamera3::constructDefaultRequestSettings(int
 }
 
 status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *request) {
+    ALOGVV("%s: E", __FUNCTION__);
     Mutex::Autolock l(mLock);
     status_t res;
-    status_t ret;
-    uint64_t useflag = 0;
     mprocessCaptureRequestFlag = true;
     /** Validation */
 
@@ -849,6 +972,9 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         ALOGE("%s: NULL request!", __FUNCTION__);
         return BAD_VALUE;
     }
+
+    ALOGVV("%s: Number of requested buffers = %u, Frame no: %u", __FUNCTION__,
+           request->num_output_buffers, request->frame_number);
 
     uint32_t frameNumber = request->frame_number;
 
@@ -968,35 +1094,41 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
     for (size_t i = 0; i < request->num_output_buffers; i++) {
         const camera3_stream_buffer &srcBuf = request->output_buffers[i];
         StreamBuffer destBuf;
+
         destBuf.streamId = kGenericStreamId;
         destBuf.width = srcBuf.stream->width;
         destBuf.height = srcBuf.stream->height;
+        destBuf.stride = srcBuf.stream->width;
+        destBuf.dataSpace = srcBuf.stream->data_space;
+        destBuf.buffer = srcBuf.buffer;
+        // Set this first to get rid of klocwork warnings.
+        // It would be overwritten again if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED
         destBuf.format = (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
                              ? HAL_PIXEL_FORMAT_RGBA_8888
                              : srcBuf.stream->format;
-        // Fix ME (dest buffer fixed for 640x480)
-        // destBuf.width = 640;
-        // destBuf.height = 480;
-        // inline with goldfish gralloc
+
         if (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
 #ifndef USE_GRALLOC1
             if (srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
 #endif
-                if (srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) {
+                if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+                    (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
+                    // Both preview and video capture output format would
+                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
                     destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else if (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
-                    destBuf.format = HAL_PIXEL_FORMAT_YCbCr_420_888;
-                } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
+               //TODO: present in old VHAL
+			   //  } else if (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
+                //    destBuf.format = HAL_PIXEL_FORMAT_YCbCr_420_888;
+                //}
+				 }else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
                            GRALLOC_USAGE_HW_CAMERA_ZSL) {
+                    // Note: Currently no support for ZSL mode
                     destBuf.format = HAL_PIXEL_FORMAT_RGB_888;
                 }
 #ifndef USE_GRALLOC1
             }
 #endif
         }
-        destBuf.stride = srcBuf.stream->width;
-        destBuf.dataSpace = srcBuf.stream->data_space;
-        destBuf.buffer = srcBuf.buffer;
 
         if (destBuf.format == HAL_PIXEL_FORMAT_BLOB) {
             needJpeg = true;
@@ -1011,10 +1143,24 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         }
         if (res == OK) {
             // Lock buffer for writing
-            if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888) {
-                if (destBuf.format == HAL_PIXEL_FORMAT_YCbCr_420_888) {
+            if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
+                srcBuf.stream->format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
+                if (destBuf.format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
+                    destBuf.format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
                     android_ycbcr ycbcr = android_ycbcr();
+                    bufferHandle2 = native_handle_clone(*(destBuf.buffer));
+#ifdef GRALLOC_MAPPER4
+                    res = GrallocModule::getInstance().importBuffer(bufferHandle2, &bufferHandle1);
+                    //res = GrallocModule::getInstance().importBuffer(*(destBuf.buffer), &bufferHandle1);
+                    if (res!= OK) {
+                        ALOGV("%s: Gralloc importBuffer failed",__FUNCTION__);
+                    }
+                    res = GrallocModule::getInstance().lock_ycbcr(bufferHandle2,
+                    //res = GrallocModule::getInstance().lock_ycbcr(bufferHandle1,
+#else
                     res = GrallocModule::getInstance().lock_ycbcr(*(destBuf.buffer),
+#endif
+
 #ifdef USE_GRALLOC1
                                                                   GRALLOC1_PRODUCER_USAGE_CPU_WRITE,
 #else
@@ -1022,15 +1168,26 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
 #endif
                                                                   0, 0, destBuf.width,
                                                                   destBuf.height, &ycbcr);
-                    // This is only valid because we know that emulator's
-                    // YCbCr_420_888 is really contiguous NV21 under the hood
                     destBuf.img = static_cast<uint8_t *>(ycbcr.y);
                 } else {
                     ALOGE("Unexpected private format for flexible YUV: 0x%x", destBuf.format);
                     res = INVALID_OPERATION;
                 }
             } else {
+#ifdef GRALLOC_MAPPER4
+                bufferHandle_3 = native_handle_clone(*(destBuf.buffer)); 
+                res = GrallocModule::getInstance().importBuffer(bufferHandle_3, &bufferHandle);
+                //res = GrallocModule::getInstance().importBuffer(*(destBuf.buffer), &bufferHandle);
+                if (res!= OK) {
+                        ALOGV("%s: Gralloc importBuffer failed",__FUNCTION__);
+                }
+
+                res = GrallocModule::getInstance().lock(bufferHandle_3,
+                //res = GrallocModule::getInstance().lock(bufferHandle,
+#else
                 res = GrallocModule::getInstance().lock(*(destBuf.buffer),
+#endif
+
 #ifdef USE_GRALLOC1
                                                         GRALLOC1_PRODUCER_USAGE_CPU_WRITE,
 #else
@@ -1062,8 +1219,23 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
 
         sensorBuffers->push_back(destBuf);
         buffers->push_back(srcBuf);
+#ifdef GRALLOC_MAPPER4
+        if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888)
+        {
+           GrallocModule::getInstance().unlock(bufferHandle2);
+            native_handle_close(bufferHandle2);
+           //GrallocModule::getInstance().release_handle(bufferHandle1);
+           //GrallocModule::getInstance().unlock(bufferHandle1);
+        }
+        else
+        {
+           GrallocModule::getInstance().unlock(bufferHandle_3);
+            native_handle_close(bufferHandle_3);
+           //GrallocModule::getInstance().release_handle(bufferHandle);
+           // GrallocModule::getInstance().unlock(bufferHandle);
+        }
+#endif
     }
-
     /**
      * Wait for JPEG compressor to not be busy, if needed
      */
@@ -1212,29 +1384,46 @@ bool VirtualFakeCamera3::hasCapability(AvailableCapabilities cap) {
     return idx >= 0;
 }
 
+void VirtualFakeCamera3::setCameraFacingInfo() {
+    // Updating facing info based on client request.
+    mFacingBack = gCameraFacingBack;
+    ALOGI("%s: Camera ID %d is set as %s facing", __func__, mCameraID,
+          mFacingBack ? "Back" : "Front");
+}
+
+void VirtualFakeCamera3::setInputCodecType() {
+    mCodecType = gCodecType;
+    ALOGI("%s: Selected %s Codec_type for Camera %d", __func__, codec_type_to_str(mCodecType),
+          mCameraID);
+}
+
+void VirtualFakeCamera3::setMaxSupportedResolution() {
+    // Updating max sensor supported resolution based on client camera.
+    // This would be used in sensor related operations and metadata info.
+    mSensorWidth = gCameraMaxWidth;
+    mSensorHeight = gCameraMaxHeight;
+    ALOGI("%s: Maximum supported Resolution of Camera %d: %dx%d", __func__, mCameraID, mSensorWidth,
+          mSensorHeight);
+}
+
 status_t VirtualFakeCamera3::constructStaticInfo() {
     CameraMetadata info;
     Vector<int32_t> availableCharacteristicsKeys;
     status_t res;
-
-    // Find max width/height
     int32_t width = 0, height = 0;
-    size_t rawSizeCount = sizeof(kAvailableRawSizes) / sizeof(kAvailableRawSizes[0]);
-    for (size_t index = 0; index + 1 < rawSizeCount; index += 2) {
-        if (width <= (int32_t)kAvailableRawSizes[index] &&
-            height <= (int32_t)kAvailableRawSizes[index + 1]) {
-            width = kAvailableRawSizes[index];
-            height = kAvailableRawSizes[index + 1];
-        }
-    }
 
-    if (width < 1280 || height < 720) {
-        width = 640;
-        height = 480;
-    }
-    mSensorWidth = width;
-    mSensorHeight = height;
-    ALOGE("%s: [width:height] [%d:%d]", __func__, mSensorWidth, mSensorHeight);
+    ALOGVV("%s: Updating metadata for Camera %d", __func__, mCameraID);
+
+    // Setting the max supported Camera resolution.
+    setMaxSupportedResolution();
+    // set codec type of the input frame.
+    setInputCodecType();
+    // Set camera facing info.
+    setCameraFacingInfo();
+
+    // Updating width and height based on capability info.
+    width = mSensorWidth;
+    height = mSensorHeight;
 
 #define ADD_STATIC_ENTRY(name, varptr, count) \
     availableCharacteristicsKeys.add(name);   \
@@ -1263,21 +1452,12 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     static const float sensorPhysicalSize[2] = {3.20f, 2.40f};  // mm
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_PHYSICAL_SIZE, sensorPhysicalSize, 2);
 
-    const int32_t pixelArray[] = {mSensorWidth, mSensorHeight};
+    int32_t pixelArray[] = {mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixelArray, 2);
-    const int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
+    int32_t activeArray[] = {0, 0, mSensorWidth, mSensorHeight};
     ADD_STATIC_ENTRY(ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
 
-    char mode[PROPERTY_VALUE_MAX];
-    static int32_t orientation = 0;
-    if ((property_get("persist.remote.camera.orientation", mode, nullptr) > 0) &&
-        (!strcmp(mode, "portrait"))) {
-        ALOGV("persist.remote.camera.orientation: portrait");
-        orientation = 270;
-    } else {
-        ALOGV("persist.remote.camera.orientation: landscape");
-        orientation = 0;
-    }
+    int32_t orientation = gCameraSensorOrientation;
     ADD_STATIC_ENTRY(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
 
     static const uint8_t timestampSource = ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
@@ -1310,11 +1490,11 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
         // 5 cm min focus distance for back camera, infinity (fixed focus) for front
-        const float minFocusDistance = mFacingBack ? 1.0 / 0.05 : 0.0;
+        float minFocusDistance = mFacingBack ? 1.0 / 0.05 : 0.0;
         ADD_STATIC_ENTRY(ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE, &minFocusDistance, 1);
 
         // 5 m hyperfocal distance for back camera, infinity (fixed focus) for front
-        const float hyperFocalDistance = mFacingBack ? 1.0 / 5.0 : 0.0;
+        float hyperFocalDistance = mFacingBack ? 1.0 / 5.0 : 0.0;
         ADD_STATIC_ENTRY(ANDROID_LENS_INFO_HYPERFOCAL_DISTANCE, &hyperFocalDistance, 1);
 
         static const float apertures = 2.8f;
@@ -1384,7 +1564,7 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          sizeof(lensRadialDistortion) / sizeof(float));
     }
 
-    const uint8_t lensFacing = mFacingBack ? ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
+    uint8_t lensFacing = mFacingBack ? ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
     ADD_STATIC_ENTRY(ANDROID_LENS_FACING, &lensFacing, 1);
 
     // android.flash
@@ -1416,40 +1596,38 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     // android.scaler
 
-    const std::vector<int32_t> availableStreamConfigurationsBasic = {
+    const std::vector<int32_t> availableStreamConfigurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
+
+    const std::vector<int32_t> availableStreamConfigurations1080p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
+        1280,
+        720,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
         HAL_PIXEL_FORMAT_BLOB,
-        320,
-        240,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-        HAL_PIXEL_FORMAT_BLOB,
-        176,
-        144,
+        1280,
+        720,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int32_t> availableStreamConfigurationsBasic640 = {
+    const std::vector<int32_t> availableStreamConfigurations720p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        640,
+        480,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
         640,
         480,
         ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
@@ -1460,7 +1638,27 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT};
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
+
+    const std::vector<int32_t> availableStreamConfigurations480p = {
+        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_YCbCr_420_888,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
+    };
 
     const std::vector<int32_t> availableStreamConfigurationsRaw = {
         HAL_PIXEL_FORMAT_RAW16,
@@ -1487,13 +1685,43 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int32_t> availableStreamConfigurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                             availableStreamConfigurationsBasic.begin(),
-                                             availableStreamConfigurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                                 availableStreamConfigurationsBasic640.begin(),
-                                                 availableStreamConfigurationsBasic640.end());
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations1080p.begin(),
+                                                 availableStreamConfigurations1080p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations720p.begin(),
+                                                 availableStreamConfigurations720p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
+
+        } else if (width == 1280 && height == 720) {
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations720p.begin(),
+                                                 availableStreamConfigurations720p.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
+        } else {  // For 480p
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
+
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
         }
     }
     if (hasCapability(RAW)) {
@@ -1512,40 +1740,38 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          &availableStreamConfigurations[0], availableStreamConfigurations.size());
     }
 
-    const std::vector<int64_t> availableMinFrameDurationsBasic = {
+    const std::vector<int64_t> availableMinFrameDurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableMinFrameDurations1080p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
+        1280,
+        720,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
         HAL_PIXEL_FORMAT_BLOB,
-        320,
-        240,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_BLOB,
-        176,
-        144,
+        1280,
+        720,
         Sensor::kFrameDurationRange[0],
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int64_t> availableMinFrameDurationsBasic640 = {
+    const std::vector<int64_t> availableMinFrameDurations720p = {
         HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        640,
+        480,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
         640,
         480,
         Sensor::kFrameDurationRange[0],
@@ -1556,7 +1782,27 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        Sensor::kFrameDurationRange[0]};
+        Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableMinFrameDurations480p = {
+        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCrCb_420_SP,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_YCbCr_420_888,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+    };
 
     const std::vector<int64_t> availableMinFrameDurationsRaw = {
         HAL_PIXEL_FORMAT_RAW16,
@@ -1583,13 +1829,42 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int64_t> availableMinFrameDurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableMinFrameDurations.insert(availableMinFrameDurations.end(),
-                                          availableMinFrameDurationsBasic.begin(),
-                                          availableMinFrameDurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableMinFrameDurations.insert(availableMinFrameDurations.end(),
-                                              availableMinFrameDurationsBasic640.begin(),
-                                              availableMinFrameDurationsBasic640.end());
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations1080p.begin(),
+                                              availableMinFrameDurations1080p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations720p.begin(),
+                                              availableMinFrameDurations720p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
+        } else if (width == 1280 && height == 720) {
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations720p.begin(),
+                                              availableMinFrameDurations720p.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
+        } else {  // For 480p
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurationsDefault.begin(),
+                                              availableMinFrameDurationsDefault.end());
+
+            availableMinFrameDurations.insert(availableMinFrameDurations.end(),
+                                              availableMinFrameDurations480p.begin(),
+                                              availableMinFrameDurations480p.end());
         }
     }
     if (hasCapability(RAW)) {
@@ -1608,51 +1883,32 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
                          &availableMinFrameDurations[0], availableMinFrameDurations.size());
     }
 
-    const std::vector<int64_t> availableStallDurationsBasic = {
+    const std::vector<int64_t> availableStallDurationsDefault = {
         HAL_PIXEL_FORMAT_BLOB,
         width,
         height,
         Sensor::kFrameDurationRange[0],
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_RGBA_8888,
-        320,
-        240,
-        0,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        176,
-        144,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        176,
-        144,
-        0,
-        HAL_PIXEL_FORMAT_RGBA_8888,
-        176,
-        144,
-        0,
     };
 
-    // Always need to include 640x480 in basic formats
-    const std::vector<int64_t> availableStallDurationsBasic640 = {
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-        640,
-        480,
-        0,
-        HAL_PIXEL_FORMAT_YCbCr_420_888,
-        640,
-        480,
-        0,
+    const std::vector<int64_t> availableStallDurations1080p = {
+        HAL_PIXEL_FORMAT_BLOB,
+        1280,
+        720,
+        Sensor::kFrameDurationRange[0],
+    };
+    const std::vector<int64_t> availableStallDurations720p = {
         HAL_PIXEL_FORMAT_BLOB,
         640,
         480,
-        Sensor::kFrameDurationRange[0]};
+        Sensor::kFrameDurationRange[0],
+    };
+
+    const std::vector<int64_t> availableStallDurations480p = {
+        HAL_PIXEL_FORMAT_BLOB,
+        320,
+        240,
+        Sensor::kFrameDurationRange[0],
+    };
 
     const std::vector<int64_t> availableStallDurationsRaw = {HAL_PIXEL_FORMAT_RAW16, 640, 480,
                                                              Sensor::kFrameDurationRange[0]};
@@ -1673,13 +1929,42 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     std::vector<int64_t> availableStallDurations;
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
-        availableStallDurations.insert(availableStallDurations.end(),
-                                       availableStallDurationsBasic.begin(),
-                                       availableStallDurationsBasic.end());
-        if (width > 640) {
+        if (width == 1920 && height == 1080) {
             availableStallDurations.insert(availableStallDurations.end(),
-                                           availableStallDurationsBasic640.begin(),
-                                           availableStallDurationsBasic640.end());
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations1080p.begin(),
+                                           availableStallDurations1080p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations720p.begin(),
+                                           availableStallDurations720p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
+        } else if (width == 1280 && height == 720) {
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations720p.begin(),
+                                           availableStallDurations720p.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
+        } else {  // For 480p
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurationsDefault.begin(),
+                                           availableStallDurationsDefault.end());
+
+            availableStallDurations.insert(availableStallDurations.end(),
+                                           availableStallDurations480p.begin(),
+                                           availableStallDurations480p.end());
         }
     }
     if (hasCapability(RAW)) {
@@ -1865,10 +2150,11 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
     }
 
     // android.info
-
-    const uint8_t supportedHardwareLevel = hasCapability(FULL_LEVEL)
-                                               ? ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_FULL
-                                               : ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED;
+    //WA during vts case execution for burst mode, setting limited hardware level
+    const uint8_t supportedHardwareLevel = ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED;
+    //const uint8_t supportedHardwareLevel = hasCapability(FULL_LEVEL)
+                                           //    ? ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_FULL
+                                             //  : ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED;
     ADD_STATIC_ENTRY(ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL, &supportedHardwareLevel,
                      /*count*/ 1);
 
@@ -2697,8 +2983,9 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
                   res);
             // fallthrough for cleanup
         }
+#ifndef GRALLOC_MAPPER4
         GrallocModule::getInstance().unlock(*(buf->buffer));
-
+#endif
         buf->status = goodBuffer ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
         buf->acquire_fence = -1;
         buf->release_fence = -1;
@@ -2788,9 +3075,9 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
 
 void VirtualFakeCamera3::ReadoutThread::onJpegDone(const StreamBuffer &jpegBuffer, bool success) {
     Mutex::Autolock jl(mJpegLock);
-
+#ifndef GRALLOC_MAPPER4
     GrallocModule::getInstance().unlock(*(jpegBuffer.buffer));
-
+#endif
     mJpegHalBuffer.status = success ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
     mJpegHalBuffer.acquire_fence = -1;
     mJpegHalBuffer.release_fence = -1;

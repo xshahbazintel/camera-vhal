@@ -33,7 +33,9 @@
 #include <utils/Mutex.h>
 #include <memory>
 #include <atomic>
+#ifdef ENABLE_FFMPEG
 #include "CGCodec.h"
+#endif
 #include "CameraSocketServerThread.h"
 #include "CameraSocketCommand.h"
 
@@ -52,11 +54,16 @@ namespace android {
  */
 class VirtualFakeCamera3 : public VirtualCamera3, private Sensor::SensorListener {
 public:
-    VirtualFakeCamera3(int cameraId, bool facingBack, struct hw_module_t *module,
+#ifdef ENABLE_FFMPEG
+    VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
                        std::shared_ptr<CameraSocketServerThread> socket_server,
                        std::shared_ptr<CGVideoDecoder> decoder,
                        std::atomic<socket::CameraSessionState> &state);
-
+#else
+    VirtualFakeCamera3(int cameraId, struct hw_module_t *module,
+                       std::shared_ptr<CameraSocketServerThread> socket_server,
+                       std::atomic<socket::CameraSessionState> &state);
+#endif
     virtual ~VirtualFakeCamera3();
 
     /****************************************************************************
@@ -64,19 +71,21 @@ public:
      ***************************************************************************/
 
 public:
-    virtual status_t Initialize(const char *device_name, const char *frame_dims,
-                                const char *facing_dir);
+    virtual status_t Initialize();
 
     /****************************************************************************
      * Camera module API and generic hardware device API implementation
      ***************************************************************************/
 
 public:
-    virtual status_t connectCamera(hw_device_t **device);
+    virtual status_t openCamera(hw_device_t **device);
 
     virtual status_t closeCamera();
 
     virtual status_t getCameraInfo(struct camera_info *info);
+
+    virtual status_t setTorchMode(const char* camera_id, bool enable); 
+
 
     /****************************************************************************
      * VirtualCamera3 abstract API implementation
@@ -98,6 +107,12 @@ protected:
     virtual void dump(int fd);
 
 private:
+    /** Initialize the Sensor and Decoder part of the Camera*/
+    status_t connectCamera();
+
+    /** Set the Decoder resolution based on the app's res request*/
+    uint32_t setDecoderResolution(uint32_t resolution);
+
     /**
      * Get the requested capability set for this camera
      */
@@ -127,6 +142,15 @@ private:
     /** Handle interrupt events from the sensor */
     void onSensorEvent(uint32_t frameNumber, Event e, nsecs_t timestamp);
 
+    /** Update max supported res width and height based on capability data.*/
+    void setMaxSupportedResolution();
+
+    /** Update input codec type for each camera based on capability data.*/
+    void setInputCodecType();
+
+    /** Update camera facing info based on capability data from client.*/
+    void setCameraFacingInfo();
+
     /****************************************************************************
      * Static configuration information
      ***************************************************************************/
@@ -140,8 +164,7 @@ private:
     // sensor-generated buffers which use a nonpositive ID. Otherwise, HAL3 has
     // no concept of a stream id.
     static const uint32_t kGenericStreamId = 1;
-    static const int32_t kAvailableFormats[];
-    static const uint32_t kAvailableRawSizes[];
+    static const int32_t kHalSupportedFormats[];
     static const int64_t kSyncWaitTimeout = 10000000;   // 10 ms
     static const int32_t kMaxSyncTimeoutCount = 1000;   // 1000 kSyncWaitTimeouts
     static const uint32_t kFenceTimeoutMs = 2000;       // 2 s
@@ -158,6 +181,13 @@ private:
     bool mFacingBack;
     int32_t mSensorWidth;
     int32_t mSensorHeight;
+
+    uint32_t mSrcWidth;
+    uint32_t mSrcHeight;
+
+    uint32_t mCodecType;
+    uint32_t mDecoderResolution;
+    bool mDecoderInitDone;
 
     SortedVector<AvailableCapabilities> mCapabilities;
 
@@ -194,13 +224,20 @@ private:
 
     // socket server
     std::shared_ptr<CameraSocketServerThread> mSocketServer;
+#ifdef ENABLE_FFMPEG
     // NV12 Video decoder handle
     std::shared_ptr<CGVideoDecoder> mDecoder = nullptr;
-
+#endif
     std::atomic<socket::CameraSessionState> &mCameraSessionState;
 
     bool createSocketServer(bool facing_back);
-    status_t sendCommandToClient(socket::CameraOperation operation);
+    status_t sendCommandToClient(socket::camera_cmd_t cmd);
+
+    enum DecoderResolution {
+        DECODER_SUPPORTED_RESOLUTION_480P = 480,
+        DECODER_SUPPORTED_RESOLUTION_720P = 720,
+        DECODER_SUPPORTED_RESOLUTION_1080P = 1080,
+    };
 
     /** Processing thread for sending out results */
 

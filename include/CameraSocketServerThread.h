@@ -28,41 +28,74 @@
 #include <memory>
 #include <atomic>
 #include <array>
+#include <chrono>
+#include <thread>
+#ifdef ENABLE_FFMPEG
 #include "CGCodec.h"
+#endif
 #include "CameraSocketCommand.h"
+#include <linux/vm_sockets.h>
 
 namespace android {
+
+enum tranSock
+{
+    UNIX  = 0,
+    TCP   = 1,
+    VSOCK = 2,
+};
 
 class VirtualCameraFactory;
 class CameraSocketServerThread : public Thread {
 public:
+#ifdef ENABLE_FFMPEG
     CameraSocketServerThread(std::string suffix, std::shared_ptr<CGVideoDecoder> decoder,
             std::atomic<socket::CameraSessionState> &state);
+#else
+    CameraSocketServerThread(std::string suffix,
+            std::atomic<socket::CameraSessionState> &state);
+#endif
     ~CameraSocketServerThread();
 
     virtual void requestExit();
     virtual status_t requestExitAndWait();
     int getClientFd();
-    void clearBuffer();
-    void clearBuffer(char *buffer, int width, int height);
+    void setClientFd(int fd);
+    ssize_t size_update = 0;
+    static void* threadFunc(void * arg);
+    
+    bool configureCapabilities();
 
 private:
     virtual status_t readyToRun();
     virtual bool threadLoop() override;
+
+    void setCameraResolution(uint32_t resolution);
+    void setCameraMaxSupportedResolution(int32_t width, int32_t height);
 
     Mutex mMutex;
     bool mRunning;  // guarding only when it's important
     int mSocketServerFd = -1;
     std::string mSocketPath;
     int mClientFd = -1;
+    int mNumOfCamerasRequested;  // Number of cameras requested to support by client.
 
+#ifdef ENABLE_FFMPEG
     std::shared_ptr<CGVideoDecoder> mVideoDecoder;
+#endif
     std::atomic<socket::CameraSessionState> &mCameraSessionState;
 
     // maximum size of a H264 packet in any aggregation packet is 65535 bytes.
     // Source: https://tools.ietf.org/html/rfc6184#page-13
     std::array<uint8_t, 200 * 1024> mSocketBuffer = {};
     size_t mSocketBufferSize = 0;
+
+    struct ValidateClientCapability {
+        bool validCodecType = false;
+        bool validResolution = false;
+        bool validOrientation = false;
+        bool validCameraFacing = false;
+    };
 };
 }  // namespace android
 

@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ifeq ($(TARGET_USE_CAMERA_VHAL), true)
+#ifeq ($(TARGET_USE_CAMERA_VHAL), true)
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
+ifneq ($(TARGET_BOARD_PLATFORM), celadon)
 ####### Build FFmpeg modules from prebuilt libs #########
 
 FFMPEG_PREBUILD := prebuilts/ffmpeg-4.2.2/android-x86_64
@@ -24,6 +25,7 @@ FFMPEG_LIB_PATH := ${FFMPEG_PREBUILD}/lib
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavcodec
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB 				:= 64
 LOCAL_SRC_FILES 			:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -33,6 +35,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libswresample
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -42,6 +45,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavutil
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB 				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -51,6 +55,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavdevice
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -60,6 +65,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavfilter
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -69,6 +75,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libavformat
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -78,6 +85,7 @@ include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE				:= libswscale
+LOCAL_CHECK_ELF_FILES                   := false
 LOCAL_MULTILIB				:= 64
 LOCAL_SRC_FILES				:= $(FFMPEG_LIB_PATH)/$(LOCAL_MODULE).so
 LOCAL_PROPRIETARY_MODULE	:= true
@@ -85,12 +93,18 @@ LOCAL_MODULE_SUFFIX			:= .so
 LOCAL_MODULE_CLASS			:= SHARED_LIBRARIES
 include $(BUILD_PREBUILT)
 ##########################################################
+endif
 
 include $(CLEAR_VARS)
 
 ##################### Build camera-vhal #######################
 
+ifeq ($(TARGET_BOARD_PLATFORM), celadon)
+LOCAL_MODULE		:= camera.$(TARGET_BOARD_PLATFORM)
+else
 LOCAL_MODULE		:= camera.$(TARGET_PRODUCT)
+endif
+
 LOCAL_MULTILIB 		:= 64
 LOCAL_VENDOR_MODULE := true
 
@@ -108,42 +122,40 @@ camera_vhal_src := \
 	src/Exif.cpp \
 	src/Thumbnail.cpp \
 	src/CameraSocketServerThread.cpp \
-	src/CameraSocketCommand.cpp \
-	src/CGCodec.cpp
-
+	src/CameraSocketCommand.cpp
+ifneq ($(TARGET_BOARD_PLATFORM), celadon)
+camera_vhal_src += src/CGCodec.cpp
+endif
 camera_vhal_c_includes := external/libjpeg-turbo \
 	external/libexif \
 	external/libyuv/files/include \
 	frameworks/native/include/media/hardware \
-	device/generic/goldfish/include \
-	device/generic/goldfish-opengl/system/OpenglSystemCommon \
 	hardware/libhardware/modules/gralloc \
 	$(LOCAL_PATH)/include \
 	$(LOCAL_PATH)/$(FFMPEG_PREBUILD)/include \
 	$(call include-path-for, camera)
 
 camera_vhal_shared_libraries := \
-    libbinder \
     libexif \
     liblog \
     libutils \
     libcutils \
-    libEGL \
-    libGLESv1_CM \
-    libGLESv2 \
     libui \
     libdl \
     libjpeg \
     libcamera_metadata \
     libhardware \
-    libsync \
-    libavcodec    \
+    libsync 
+
+ifneq ($(TARGET_BOARD_PLATFORM), celadon)
+camera_vhal_shared_libraries +=     libavcodec    \
     libavdevice   \
     libavfilter   \
     libavformat   \
     libavutil     \
     libswresample \
     libswscale
+endif
 
 camera_vhal_static_libraries := \
 	android.hardware.camera.common@1.0-helper \
@@ -158,6 +170,12 @@ ifeq ($(BOARD_USES_GRALLOC1), true)
 camera_vhal_cflags += -DUSE_GRALLOC1
 endif
 
+ifeq ($(TARGET_BOARD_PLATFORM), celadon)
+camera_vhal_cflags += -DGRALLOC_MAPPER4
+else
+camera_vhal_cflags += -DENABLE_FFMPEG
+endif
+
 LOCAL_MODULE_RELATIVE_PATH	:= ${camera_vhal_module_relative_path}
 LOCAL_CFLAGS				:= ${camera_vhal_cflags}
 LOCAL_CPPFLAGS 				+= -std=c++17
@@ -167,13 +185,6 @@ LOCAL_C_INCLUDES			+= ${camera_vhal_c_includes}
 LOCAL_SRC_FILES 			:= ${camera_vhal_src}
 LOCAL_SHARED_LIBRARIES 		:= ${camera_vhal_shared_libraries}
 LOCAL_STATIC_LIBRARIES 		:= ${camera_vhal_static_libraries}
-
-LOCAL_EXPORT_C_INCLUDES := \
-	$(LOCAL_PATH)/include \
-	$(LOCAL_PATH)/$(FFMPEG_PREBUILD)/include
-
-# to support platfrom build system
-LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_EXPORT_C_INCLUDES)
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -217,10 +228,14 @@ LOCAL_SHARED_LIBRARIES := ${jpeg_shared_libraries}
 LOCAL_C_INCLUDES += ${jpeg_c_includes}
 LOCAL_SRC_FILES := ${jpeg_src}
 
+ifeq ($(TARGET_BOARD_PLATFORM), celadon)
+LOCAL_MODULE		:= camera.$(TARGET_BOARD_PLATFORM).jpeg
+else
 LOCAL_MODULE := camera.$(TARGET_PRODUCT).jpeg
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
 ######################################################
 
-endif # TARGET_USE_CAMERA_VHAL
+#endif # TARGET_USE_CAMERA_VHAL

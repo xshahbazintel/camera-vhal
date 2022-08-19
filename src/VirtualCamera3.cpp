@@ -58,8 +58,7 @@ VirtualCamera3::~VirtualCamera3() {}
  * Public API
  ***************************************************************************/
 
-status_t VirtualCamera3::Initialize(const char *device_name, const char *frame_dims,
-                                    const char *facing_dir) {
+status_t VirtualCamera3::Initialize() {
     ALOGV("%s", __FUNCTION__);
 
     mStatus = STATUS_CLOSED;
@@ -70,8 +69,8 @@ status_t VirtualCamera3::Initialize(const char *device_name, const char *frame_d
  * Camera API implementation
  ***************************************************************************/
 
-status_t VirtualCamera3::connectCamera(hw_device_t **device) {
-    ALOGV("%s", __FUNCTION__);
+status_t VirtualCamera3::openCamera(hw_device_t **device) {
+    ALOGV("%s: E", __FUNCTION__);
     if (device == NULL) return BAD_VALUE;
 
     if (mStatus != STATUS_CLOSED) {
@@ -81,17 +80,22 @@ status_t VirtualCamera3::connectCamera(hw_device_t **device) {
 
     *device = &common;
     mStatus = STATUS_OPEN;
+    ALOGI("%s : Camera %d opened successfully..", __FUNCTION__, mCameraID);
     return NO_ERROR;
 }
 
 status_t VirtualCamera3::closeCamera() {
     mStatus = STATUS_CLOSED;
-    ALOGI("%s : Camera session closed successfully!!!", __FUNCTION__);
+    ALOGI("%s : Camera %d closed successfully..", __FUNCTION__, mCameraID);
     return NO_ERROR;
 }
 
 status_t VirtualCamera3::getCameraInfo(struct camera_info *info) {
     return VirtualBaseCamera::getCameraInfo(info);
+}
+
+status_t VirtualCamera3::setTorchMode(const char* camera_id, bool enable) {
+    return VirtualBaseCamera::setTorchMode(camera_id,enable);
 }
 
 /****************************************************************************

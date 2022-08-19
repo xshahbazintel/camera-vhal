@@ -45,18 +45,18 @@ typedef void (*GetCompressedImageFunc)(JpegStub *stub, void *buff);
 typedef size_t (*GetCompressedSizeFunc)(JpegStub *stub);
 
 NV21JpegCompressor::NV21JpegCompressor() {
-    const char dlName[] = "/system/vendor/lib64/hw/camera.cic_cloud.jpeg.so";
+    const char dlName[] = "/system/vendor/lib64/hw/camera.celadon.jpeg.so";
     if (!mDl) {
         mDl = dlopen(dlName, RTLD_NOW);
     }
     if (mDl) {
-       InitFunc f = (InitFunc)getSymbol(mDl, "JpegStub_init");
-       if (f)
-           (*f)(&mStub);
-       else
-           ALOGE("%s: Fatal error: getSymbol(JpegStub_init) failed", __func__);
+        InitFunc f = (InitFunc)getSymbol(mDl, "JpegStub_init");
+        if (f)
+            (*f)(&mStub);
+        else
+            ALOGE("%s: Fatal error: getSymbol(JpegStub_init) failed", __func__);
     } else {
-       ALOGE("%s: Fatal error: dlopen(%s) failed", __func__, dlName);
+        ALOGE("%s: Fatal error: dlopen(%s) failed", __func__, dlName);
     }
 }
 
