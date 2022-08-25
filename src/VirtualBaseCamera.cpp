@@ -27,6 +27,7 @@
 // #define LOG_NDEBUG 0
 #define LOG_TAG "VirtualCamera_BaseCamera"
 #include <log/log.h>
+#include <string>
 
 #include "VirtualBaseCamera.h"
 
