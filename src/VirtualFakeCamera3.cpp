@@ -190,7 +190,6 @@ uint32_t VirtualFakeCamera3::setDecoderResolution(uint32_t resolution) {
 status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     ALOGI("%s E", __func__);
 
-    static std::future<bool> cmd_interval;
     status_t status = INVALID_OPERATION;
     size_t config_cmd_packet_size = sizeof(camera_header_t) + sizeof(camera_config_cmd_t);
     camera_config_cmd_t config_cmd = {};
@@ -214,12 +213,6 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd_packet->header.size = sizeof(camera_config_cmd_t);
     memcpy(config_cmd_packet->payload, &config_cmd, sizeof(camera_config_cmd_t));
 
-    // TODO: Remove this once OWT client is able to handle back to back open/close commands.
-    if (cmd_interval.valid()) { cmd_interval.wait(); }
-    cmd_interval = std::async(std::launch::async, [](){
-        std::this_thread::sleep_for(2500ms);
-        return true;
-    });
     ALOGI("%s: Camera client Id(%d) Sending config cmd %s", __FUNCTION__, client_id,
           (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera");
     if (!mClientThread->sendCommandToClient(config_cmd_packet, config_cmd_packet_size)) {
