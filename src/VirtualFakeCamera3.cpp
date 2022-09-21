@@ -195,7 +195,7 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     camera_config_cmd_t config_cmd = {};
     config_cmd.version = CAMERA_VHAL_VERSION_2;
     config_cmd.cmd = cmd;
-    config_cmd.config.cameraId = mCameraID;
+    config_cmd.config.cameraId = mClientCameraInfo.cameraId;
     config_cmd.config.codec_type = mCodecType;
     config_cmd.config.resolution = mDecoderResolution;
 
@@ -213,8 +213,8 @@ status_t VirtualFakeCamera3::sendCommandToClient(camera_cmd_t cmd) {
     config_cmd_packet->header.size = sizeof(camera_config_cmd_t);
     memcpy(config_cmd_packet->payload, &config_cmd, sizeof(camera_config_cmd_t));
 
-    ALOGI("%s: Camera client Id(%d) Sending config cmd %s", __FUNCTION__, client_id,
-          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera");
+    ALOGI("%s: Client(%d) Sending cmd %s cameraId(%d)", __FUNCTION__, client_id,
+          (cmd == camera_cmd_t::CMD_CLOSE) ? "CloseCamera" : "OpenCamera", config_cmd.config.cameraId);
     if (!mClientThread->sendCommandToClient(config_cmd_packet, config_cmd_packet_size)) {
         goto out;
     }
