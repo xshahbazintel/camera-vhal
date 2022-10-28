@@ -1,11 +1,5 @@
-/**
- * @file CameraSocketCommand.cpp
- * @author Shakthi Prashanth M (shakthi.prashanth.m@intel.com)
- * @brief
- * @version 0.1
- * @date 2021-03-14
- *
- * Copyright (c) 2021 Intel Corporation
+/*
+ * Copyright (C) 2022 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include "CameraSocketCommand.h"
 
 namespace android {

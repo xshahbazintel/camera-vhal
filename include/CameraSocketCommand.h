@@ -1,12 +1,5 @@
-/**
- * @file CameraSocketCommand.h
- * @author Shakthi Prashanth M (shakthi.prashanth.m@intel.com)
- * @brief  Implementation of protocol between camera vhal and cloud client such
- *         as streamer or cg-proxy.
- * @version 0.1
- * @date 2021-02-15
- *
- * Copyright (c) 2021 Intel Corporation
+/*
+ * Copyright (C) 2022 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
