@@ -256,7 +256,7 @@ bool VirtualCameraFactory::createVirtualRemoteCamera(
     ALOGV("%s: E", __FUNCTION__);
     int cameraId = mVirtualCameras.size();
     std::shared_ptr<ClientCommunicator> client_thread = mClientThreads[clientId];
-    for (int id = 0; id < mVirtualCameras.size(); id++) {
+    for (int id = 0; id < (int)mVirtualCameras.size(); id++) {
         if (mVirtualCameras[id] == nullptr) {
             ALOGI("%s:CameraId is set to %d", __FUNCTION__, id);
             cameraId = id;
