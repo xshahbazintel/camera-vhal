@@ -29,9 +29,7 @@ camera_vhal_src := \
 	src/VirtualCameraHal.cpp \
 	src/VirtualCameraFactory.cpp \
 	src/VirtualBaseCamera.cpp \
-	src/Converters.cpp \
 	src/NV21JpegCompressor.cpp \
-	src/fake-pipeline2/Scene.cpp \
 	src/fake-pipeline2/Sensor.cpp \
 	src/fake-pipeline2/JpegCompressor.cpp \
 	src/VirtualCamera3.cpp \

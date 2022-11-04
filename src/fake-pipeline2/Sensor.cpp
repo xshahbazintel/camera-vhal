@@ -110,7 +110,6 @@ Sensor::Sensor(uint32_t camera_id, uint32_t width, uint32_t height,
       mRowReadoutTime(kFrameDurationRange[0] / height),
       mExposureTime(kFrameDurationRange[0] - kMinVerticalBlank),
       mFrameDuration(kFrameDurationRange[0]),
-      mScene(width, height, kElectronsPerLuxSecond),
       mCameraId(camera_id),
       mDecoder{decoder},
       mCameraBuffer(cameraBuffer) {
@@ -158,8 +157,6 @@ status_t Sensor::shutDown() {
     }
     return res;
 }
-
-Scene &Sensor::getScene() { return mScene; }
 
 void Sensor::setExposureTime(uint64_t ns) {
     Mutex::Autolock lock(mControlMutex);
@@ -326,8 +323,6 @@ bool Sensor::threadLoop() {
         }
         ALOGVV("Starting next capture: Exposure: %f ms, gain: %d", (float)exposureDuration / 1e6,
                gain);
-        mScene.setExposureDuration((float)exposureDuration / 1e9);
-        mScene.calculateScene(mNextCaptureTime);
 
         mCameraBuffer->clientBuf.decoded = false;
 
@@ -344,33 +339,24 @@ bool Sensor::threadLoop() {
                 " %d x %d, format %x, stride %d, buf %p, img %p",
                 i, b.streamId, b.width, b.height, b.format, b.stride, b.buffer, b.img);
             switch (b.format) {
-                case HAL_PIXEL_FORMAT_RAW16:
-                    captureRaw(b.img, gain, b.stride);
-                    break;
-                case HAL_PIXEL_FORMAT_RGB_888:
-                    captureRGB(b.img, gain, b.width, b.height);
-                    break;
                 case HAL_PIXEL_FORMAT_RGBA_8888:
                     captureRGBA(b.img, gain, b.width, b.height);
                     break;
-                case HAL_PIXEL_FORMAT_BLOB:
-                    if (b.dataSpace != HAL_DATASPACE_DEPTH) {
-                        // Add auxillary buffer of the right
-                        // size Assumes only one BLOB (JPEG)
-                        // buffer in mNextCapturedBuffers
-                        StreamBuffer bAux = {};
-                        bAux.streamId = 0;
-                        bAux.width = b.width;
-                        bAux.height = b.height;
-                        bAux.format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-                        bAux.stride = b.width;
-                        bAux.buffer = nullptr;
-                        bAux.img = new uint8_t[b.width * b.height * 3];
-                        mNextCapturedBuffers->push_back(bAux);
-                    } else {
-                        captureDepthCloud(b.img);
-                    }
+		case HAL_PIXEL_FORMAT_BLOB: {
+                    // Add auxillary buffer of the right
+                    // size Assumes only one BLOB (JPEG)
+                    // buffer in mNextCapturedBuffers
+                    StreamBuffer bAux = {};
+                    bAux.streamId = 0;
+                    bAux.width = b.width;
+                    bAux.height = b.height;
+                    bAux.format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+                    bAux.stride = b.width;
+                    bAux.buffer = nullptr;
+                    bAux.img = new uint8_t[b.width * b.height * 3];
+                    mNextCapturedBuffers->push_back(bAux);
                     break;
+                }
                 case HAL_PIXEL_FORMAT_YCrCb_420_SP:
                     captureNV21(b.img, gain, b.width, b.height);
                     break;
@@ -380,9 +366,6 @@ bool Sensor::threadLoop() {
                 case HAL_PIXEL_FORMAT_YV12:
                     // TODO:
                     ALOGE("%s: Format %x is TODO", __FUNCTION__, b.format);
-                    break;
-                case HAL_PIXEL_FORMAT_Y16:
-                    captureDepth(b.img, gain, b.width, b.height);
                     break;
                 default:
                     ALOGE("%s: Unknown format %x, no output", __FUNCTION__, b.format);
@@ -414,46 +397,6 @@ bool Sensor::threadLoop() {
            (int)(workDoneRealTime - startRealTime) / 1000000, (int)(frameDuration / 1000000));
     return true;
 };
-
-void Sensor::captureRaw(uint8_t *img, uint32_t gain, uint32_t stride) {
-    ALOGVV("%s", __FUNCTION__);
-    float totalGain = gain / 100.0 * kBaseGainFactor;
-    float noiseVarGain = totalGain * totalGain;
-    float readNoiseVar = kReadNoiseVarBeforeGain * noiseVarGain + kReadNoiseVarAfterGain;
-
-    int bayerSelect[4] = {Scene::R, Scene::Gr, Scene::Gb, Scene::B};  // RGGB
-    mScene.setReadoutPixel(0, 0);
-    for (unsigned int y = 0; y < mResolution[1]; y++) {
-        int *bayerRow = bayerSelect + (y & 0x1) * 2;
-        uint16_t *px = (uint16_t *)img + y * stride;
-        for (unsigned int x = 0; x < mResolution[0]; x++) {
-            uint32_t electronCount;
-            electronCount = mScene.getPixelElectrons()[bayerRow[x & 0x1]];
-
-            // TODO: Better pixel saturation curve?
-            electronCount =
-                (electronCount < kSaturationElectrons) ? electronCount : kSaturationElectrons;
-
-            // TODO: Better A/D saturation curve?
-            uint16_t rawCount = electronCount * totalGain;
-            rawCount = (rawCount < kMaxRawValue) ? rawCount : kMaxRawValue;
-
-            // Calculate noise value
-            // TODO: Use more-correct Gaussian instead of uniform
-            // noise
-            float photonNoiseVar = electronCount * noiseVarGain;
-            float noiseStddev = sqrtf_approx(readNoiseVar + photonNoiseVar);
-            // Scaled to roughly match gaussian/uniform noise stddev
-            float noiseSample = std::rand() * (2.5 / (1.0 + RAND_MAX)) - 1.25;
-
-            rawCount += kBlackLevel;
-            rawCount += noiseStddev * noiseSample;
-
-            *px++ = rawCount;
-        }
-    }
-    ALOGVV("Raw sensor image captured");
-}
 
 void Sensor::dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_id,
                        const char *frame_type, uint32_t resolution, size_t frame_count) {
@@ -697,41 +640,6 @@ void Sensor::captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         }
     }
     ALOGVV(" %s: Captured RGB32 image successfully..", __FUNCTION__);
-}
-
-void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
-    float totalGain = gain / 100.0 * kBaseGainFactor;
-    // In fixed-point math, calculate total scaling from electrons to 8bpp
-    int scale64x = 64 * totalGain * 255 / kMaxRawValue;
-    unsigned int DivH = (float)mResolution[1] / height * (0x1 << 10);
-    unsigned int DivW = (float)mResolution[0] / width * (0x1 << 10);
-
-    for (unsigned int outY = 0; outY < height; outY++) {
-        unsigned int y = outY * DivH >> 10;
-        uint8_t *px = img + outY * width * 3;
-        mScene.setReadoutPixel(0, y);
-        unsigned int lastX = 0;
-        const uint32_t *pixel = mScene.getPixelElectrons();
-        for (unsigned int outX = 0; outX < width; outX++) {
-            uint32_t rCount, gCount, bCount;
-            unsigned int x = outX * DivW >> 10;
-            if (x - lastX > 0) {
-                for (unsigned int k = 0; k < (x - lastX); k++) {
-                    pixel = mScene.getPixelElectrons();
-                }
-            }
-            lastX = x;
-            // TODO: Perfect demosaicing is a cheat
-            rCount = (pixel[Scene::R] + (outX + outY) % 64) * scale64x;
-            gCount = (pixel[Scene::Gr] + (outX + outY) % 64) * scale64x;
-            bCount = (pixel[Scene::B] + (outX + outY) % 64) * scale64x;
-
-            *px++ = rCount < 255 * 64 ? rCount / 64 : 255;
-            *px++ = gCount < 255 * 64 ? gCount / 64 : 255;
-            *px++ = bCount < 255 * 64 ? bCount / 64 : 255;
-        }
-    }
-    ALOGVV("RGB sensor image captured");
 }
 
 void Sensor::captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
@@ -1172,69 +1080,4 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     }
     ALOGVV("%s: Captured NV21 image successfully..", __FUNCTION__);
 }
-
-void Sensor::captureDepth(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height) {
-    ALOGVV("%s", __FUNCTION__);
-
-    float totalGain = gain / 100.0 * kBaseGainFactor;
-    // In fixed-point math, calculate scaling factor to 13bpp millimeters
-    int scale64x = 64 * totalGain * 8191 / kMaxRawValue;
-    unsigned int DivH = (float)mResolution[1] / height * (0x1 << 10);
-    unsigned int DivW = (float)mResolution[0] / width * (0x1 << 10);
-
-    for (unsigned int outY = 0; outY < height; outY++) {
-        unsigned int y = outY * DivH >> 10;
-        uint16_t *px = ((uint16_t *)img) + outY * width;
-        mScene.setReadoutPixel(0, y);
-        unsigned int lastX = 0;
-        const uint32_t *pixel = mScene.getPixelElectrons();
-        for (unsigned int outX = 0; outX < width; outX++) {
-            uint32_t depthCount;
-            unsigned int x = outX * DivW >> 10;
-            if (x - lastX > 0) {
-                for (unsigned int k = 0; k < (x - lastX); k++) {
-                    pixel = mScene.getPixelElectrons();
-                }
-            }
-            lastX = x;
-            depthCount = pixel[Scene::Gr] * scale64x;
-            *px++ = depthCount < 8191 * 64 ? depthCount / 64 : 0;
-        }
-        // TODO: Handle this better
-        // simulatedTime += mRowReadoutTime;
-    }
-    ALOGVV("Depth sensor image captured");
-}
-
-void Sensor::captureDepthCloud(uint8_t *img) {
-    ALOGVV("%s", __FUNCTION__);
-
-    android_depth_points *cloud = reinterpret_cast<android_depth_points *>(img);
-
-    cloud->num_points = 16;
-
-    // TODO: Create point cloud values that match RGB scene
-    const int FLOATS_PER_POINT = 4;
-    const float JITTER_STDDEV = 0.1f;
-    for (size_t y = 0, i = 0; y < 4; y++) {
-        for (size_t x = 0; x < 4; x++, i++) {
-            float randSampleX = std::rand() * (2.5f / (1.0f + RAND_MAX)) - 1.25f;
-            randSampleX *= JITTER_STDDEV;
-
-            float randSampleY = std::rand() * (2.5f / (1.0f + RAND_MAX)) - 1.25f;
-            randSampleY *= JITTER_STDDEV;
-
-            float randSampleZ = std::rand() * (2.5f / (1.0f + RAND_MAX)) - 1.25f;
-            randSampleZ *= JITTER_STDDEV;
-
-            cloud->xyzc_points[i * FLOATS_PER_POINT + 0] = x - 1.5f + randSampleX;
-            cloud->xyzc_points[i * FLOATS_PER_POINT + 1] = y - 1.5f + randSampleY;
-            cloud->xyzc_points[i * FLOATS_PER_POINT + 2] = 3.f + randSampleZ;
-            cloud->xyzc_points[i * FLOATS_PER_POINT + 3] = 0.8f;
-        }
-    }
-
-    ALOGVV("Depth point cloud captured");
-}
-
 }  // namespace android

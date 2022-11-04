@@ -88,7 +88,6 @@
 #include <future>
 #include <array>
 
-#include "Scene.h"
 #include "Base.h"
 #include "onevpl-video-decode/MfxDecoder.h"
 
@@ -111,11 +110,6 @@ public:
 
     status_t startUp();
     status_t shutDown();
-
-    /*
-     * Access to scene
-     */
-    Scene &getScene();
 
     /*
      * Controls that can be updated every frame
@@ -234,15 +228,9 @@ private:
     nsecs_t mNextCaptureTime = 0;
     Buffers *mNextCapturedBuffers = nullptr;
 
-    Scene mScene;
-
-    void captureRaw(uint8_t *img, uint32_t gain, uint32_t stride);
     void captureRGBA(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
-    void captureRGB(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
     void captureNV12(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
     void captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
-    void captureDepth(uint8_t *img, uint32_t gain, uint32_t width, uint32_t height);
-    void captureDepthCloud(uint8_t *img);
     void dumpFrame(uint8_t *frame_addr, size_t frame_size, uint32_t camera_id,
                    const char *frame_type, uint32_t resolution, size_t frame_count);
     void getDecodedFrames(uint8_t *decoded_buf);
