@@ -399,6 +399,7 @@ bool ClientCommunicator::clientThread() {
                         ALOGI("%s(%d): Configure capability", __FUNCTION__, mClientId);
                         gVirtualCameraFactory.clearCameraInfo(mClientId);
                         configureCapabilities();
+                        continue;
                     }
                     if (!mIsConfigurationDone || header.type != CAMERA_DATA) {
                         ALOGE("%s(%d): invalid camera_packet_type: %s", __FUNCTION__, mClientId,
