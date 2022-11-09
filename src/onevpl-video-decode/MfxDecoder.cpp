@@ -18,6 +18,7 @@
 //#define LOG_NDEBUG 0
 
 #include "onevpl-video-decode/MfxDecoder.h"
+#include <thread>
 
 MfxDecoder::MfxDecoder() {
     ALOGV("%s", __func__);
@@ -604,15 +605,11 @@ mfxStatus MfxDecoder::DecodeFrame(uint8_t *pData, size_t size) {
         mfx_sts = MFXVideoDECODE_DecodeFrameAsync(mMfxDecSession, bs, pWorkSurface,
                                                   &pOutSurface, &sync_point);
 
-        // When the hardware acceleration device (GPU) is busy.
+        // When the hardware acceleration device (GPU) is busy, wait and try again.
         if (mfx_sts == MFX_WRN_DEVICE_BUSY) {
-            ALOGW("%s: GPU HW is busy!  Try sync operation now", __func__);
-            mfx_sts = MFXVideoCORE_SyncOperation(mMfxDecSession, sync_point, MFX_TIMEOUT_INFINITE);
-            if (mfx_sts == MFX_ERR_NONE) {
-                ALOGV("%s: Sync operation success!", __func__);
-            } else {
-                ALOGE("%s: Sync operation failed, mfx_sts = %d", __func__, mfx_sts);
-            }
+            ALOGW("%s: GPU HW is busy!  Wait for a while", __func__);
+            std::this_thread::sleep_for(std::chrono::milliseconds(WAIT_1_MILLISECOND));
+            continue;
         }
 
         if (mfx_sts == MFX_ERR_NONE) {
@@ -623,6 +620,13 @@ mfxStatus MfxDecoder::DecodeFrame(uint8_t *pData, size_t size) {
                   __func__, pOutSurface->Data.Locked, pOutSurface->Info.CropW,
                   pOutSurface->Info.CropH, pOutSurface->Info.Width,
                   pOutSurface->Info.Height, pOutSurface->Data.TimeStamp);
+
+            // Sync the above async operation now by waiting to complete the operation.
+            do {
+                mfx_sts = MFXVideoCORE_SyncOperation(mMfxDecSession, sync_point, WAIT_1_MILLISECOND);
+                if (mfx_sts == MFX_ERR_NONE)
+                    ALOGV("%s: Sync operation completed successfully", __func__);
+            } while (mfx_sts == MFX_WRN_IN_EXECUTION);
 
             // Copy decoded frame into internal decoder buffer.
             {

@@ -34,7 +34,7 @@
 using ::android::hardware::graphics::mapper::V2_0::YCbCrLayout;
 
 #define MIN_NUMBER_OF_REQUIRED_FRAME_SURFACE 4 // Required for smooth camera previcw.
-#define MFX_TIMEOUT_INFINITE 0xEFFFFFFF
+#define WAIT_1_MILLISECOND 1
 #define ONEVPL_ALIGN32(value) (((value + 31) >> 5) << 5) // round up to a multiple of 32
 
 // Resolution height must be a multiple of 16 for AVC and a multiple of 32 for HEVC.
