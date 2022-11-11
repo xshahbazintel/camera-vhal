@@ -381,6 +381,8 @@ void MfxDecoder::Release() {
 
     mfxStatus mfx_sts = MFX_ERR_NONE;
 
+    std::lock_guard<std::mutex> lock(mDecMutex);
+
     // Terminates the current decoding operation and deallocates all memory.
     mfx_sts = MFXVideoDECODE_Close(mMfxDecSession);
     if (mfx_sts == MFX_ERR_NONE) {
@@ -558,6 +560,14 @@ mfxStatus MfxDecoder::DecodeFrame(uint8_t *pData, size_t size) {
     ALOGV("%s - E", __func__);
 
     mfxStatus mfx_sts = MFX_ERR_NONE;
+
+    std::lock_guard<std::mutex> lock(mDecMutex);
+
+    if (!mIsDecoderInitialized) {
+        mfx_sts == MFX_ERR_NOT_INITIALIZED;
+        ALOGE("%s: MFX decoder is not initialized, unable to continue", __func__);
+        return mfx_sts;
+    }
 
     mfx_sts = mMfxFrameConstructor->Load(pData, size, 0, false, true);
     if (mfx_sts == MFX_ERR_NONE) {

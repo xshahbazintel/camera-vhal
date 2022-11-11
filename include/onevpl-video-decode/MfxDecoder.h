@@ -95,6 +95,7 @@ private:
     bool mIsGetVideoParametersDone;
 #endif
 
+    std::mutex mDecMutex;
     std::mutex mMemMutex;
 
     std::unique_ptr<MfxFrameConstructor> mMfxFrameConstructor;
