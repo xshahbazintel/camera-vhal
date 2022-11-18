@@ -61,9 +61,13 @@ void VirtualCameraFactory::readSystemProperties() {
     mNumClients = 1;
     if (property_get("ro.concurrent.user.num", prop_val, "") > 0){
         int num = atoi(prop_val);
-        if (num > 1){
+        if (num > 1 && num < MAX_CONCURRENT_USER_NUM){
             mNumClients = num;
-            ALOGI("Support concurrent multi users(%d)", num);
+            ALOGI("%s: Support concurrent multi users(%d)", __FUNCTION__, mNumClients);
+        } else if (num == 1) {
+            ALOGI("%s: Support only single user(%d)", __FUNCTION__, mNumClients);
+        } else {
+            ALOGE("%s: Invalid request(%d), please check it again", __FUNCTION__, mNumClients);
         }
     }
     ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, gUseVaapi: %d, mNumClients: %d",
@@ -74,6 +78,8 @@ VirtualCameraFactory::VirtualCameraFactory()
     : mConstructedOK(false),
       mCallbacks(nullptr),
       mNumClients(1) {
+    mVirtualCameras.clear();
+
     readSystemProperties();
 
     // Create socket listener which accepts client connections.

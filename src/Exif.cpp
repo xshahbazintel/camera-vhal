@@ -68,13 +68,14 @@ static void removeExistingEntry(ExifData *exifData, ExifIfd ifd, int tag) {
 static ExifEntry *allocateEntry(int tag, ExifFormat format, unsigned int numComponents) {
     ExifMem *mem = exif_mem_new_default();
     ExifEntry *entry = exif_entry_new_mem(mem);
-
-    unsigned int size = numComponents * exif_format_get_size(format);
-    entry->data = reinterpret_cast<unsigned char *>(exif_mem_alloc(mem, size));
-    entry->size = size;
-    entry->tag = static_cast<ExifTag>(tag);
-    entry->components = numComponents;
-    entry->format = format;
+    if (entry) {
+        unsigned int size = numComponents * exif_format_get_size(format);
+        entry->data = reinterpret_cast<unsigned char *>(exif_mem_alloc(mem, size));
+        entry->size = size;
+        entry->tag = static_cast<ExifTag>(tag);
+        entry->components = numComponents;
+        entry->format = format;
+    }
 
     exif_mem_unref(mem);
     return entry;
@@ -294,6 +295,10 @@ static void convertToMetadata(const CameraParameters &src, CameraMetadata &dst) 
 // Create Exif data common for both HAL1 and HAL3
 static ExifData *createExifDataCommon(const CameraMetadata &params, int width, int height) {
     ExifData *exifData = exif_data_new();
+    if (!exifData) {
+        ALOGE("%s: Invalid exif data, unable to continue further", __func__);
+        return exifData;
+    }
 
     exif_data_set_option(exifData, EXIF_DATA_OPTION_FOLLOW_SPECIFICATION);
     exif_data_set_data_type(exifData, EXIF_DATA_TYPE_COMPRESSED);
@@ -409,6 +414,11 @@ static ExifData *createExifDataCommon(const CameraMetadata &params, int width, i
 
 ExifData *createExifData(const CameraMetadata &params, int width, int height) {
     ExifData *exifData = createExifDataCommon(params, width, height);
+    if (!exifData) {
+        ALOGE("%s: Invalid exif data, unable to continue further", __func__);
+        return exifData;
+    }
+
     // Exposure Time
     camera_metadata_ro_entry entry;
     entry = params.find(ANDROID_SENSOR_EXPOSURE_TIME);

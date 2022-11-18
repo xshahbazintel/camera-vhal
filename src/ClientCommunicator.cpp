@@ -104,7 +104,6 @@ void ClientCommunicator::configureCapabilities() {
     mNumOfCamerasRequested = 0;
     camera_ack_t ack_payload = ACK_CONFIG;
 
-    camera_info_t camera_info[MAX_NUMBER_OF_SUPPORTED_CAMERAS] = {};
     camera_capability_t capability = {};
 
     camera_packet_t *cap_packet = NULL;
@@ -143,28 +142,17 @@ void ClientCommunicator::configureCapabilities() {
         goto out;
     }
 
-    if (header.size > MAX_NUMBER_OF_SUPPORTED_CAMERAS*sizeof(camera_info_t)) {
-        ALOGW("%s(%d):[warning] Number of cameras requested by client is higher "
-              "than the max number of cameras supported in the HAL"
-              "We can only support max number of cameras that is supported in "
-              "the HAL instead of number of cameras requested by client",
-              __FUNCTION__, mClientId);
-        mNumOfCamerasRequested = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
-    }
-
-    // Get the number of cameras requested to support from client.
-    for (int i = 1; i <= MAX_NUMBER_OF_SUPPORTED_CAMERAS; i++) {
-        if (header.size == i * sizeof(camera_info_t)) {
-            mNumOfCamerasRequested = i;
-            break;
-        }
-    }
-
-    if (mNumOfCamerasRequested == 0) {
+    if (header.size < sizeof(camera_info_t)) {
         ALOGE("%s(%d): No camera device to support, header size received, size = %zu",
               __FUNCTION__, mClientId, recv_size);
         goto send_ack;
+    } else {
+        // Get the number of cameras requested to support from client.
+        mNumOfCamerasRequested = (header.size) / sizeof(camera_info_t);
     }
+
+    camera_info_t camera_info[mNumOfCamerasRequested];
+    memset(camera_info, 0, sizeof(camera_info));
 
     if ((recv_size = recv(mClientFd, (char *)&camera_info,
                           header.size, MSG_WAITALL)) < 0) {
@@ -175,6 +163,15 @@ void ClientCommunicator::configureCapabilities() {
     ALOGI("%s(%d): Received CAMERA_INFO packet from client with recv_size: %zd ", __FUNCTION__, mClientId,
           recv_size);
     ALOGI("%s(%d): Number of cameras requested = %d", __FUNCTION__, mClientId, mNumOfCamerasRequested);
+
+    if (mNumOfCamerasRequested > MAX_NUMBER_OF_SUPPORTED_CAMERAS) {
+        ALOGW("%s(%d):[warning] Number of cameras requested by client is higher "
+              "than the max number of cameras supported in the HAL"
+              "We can only support max number of cameras that is supported in "
+              "the HAL instead of number of cameras requested by client",
+              __FUNCTION__, mClientId);
+        mNumOfCamerasRequested = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
+    }
 
     // validate capability info received from the client.
     for (int i = 0; i < mNumOfCamerasRequested; i++) {
@@ -380,7 +377,7 @@ bool ClientCommunicator::clientThread() {
                 if ((size = recv(mClientFd, (char *)fbuffer, 460800, MSG_WAITALL)) > 0) {
                     if (mCameraBuffer) {
                         mCameraBuffer->clientRevCount++;
-                        memcpy(mCameraBuffer->clientBuf.buffer, &fbuffer, 460800);
+                        memcpy(mCameraBuffer->clientBuf.buffer, fbuffer, 460800);
                         ALOGVV("%s(%d): [I420] Packet rev %d and "
                             "size %zd",
                             __FUNCTION__, mClientId, mCameraBuffer->clientRevCount, size);

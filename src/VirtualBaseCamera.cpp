@@ -46,6 +46,7 @@ VirtualBaseCamera::VirtualBaseCamera(int cameraId, uint32_t cameraVersion,
     device->version = cameraVersion;
     device->module = module;
     device->close = NULL;  // Must be filled in by child implementation
+    mUserId = 0;
 }
 
 VirtualBaseCamera::~VirtualBaseCamera() {}

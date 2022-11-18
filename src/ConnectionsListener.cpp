@@ -23,10 +23,9 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <cutils/properties.h>
-#include <CameraSocketCommand.h>
+#include "CameraSocketCommand.h"
 
 namespace android {
-
 
 ConnectionsListener::ConnectionsListener(std::string suffix)
     : Thread(/*canCallJava*/ false),
@@ -40,12 +39,17 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
     char buf[PROPERTY_VALUE_MAX] = {
         '\0',
     };
-    int num_clients = 1;
+    uint32_t num_clients = 1;
     if (property_get("ro.concurrent.user.num", buf, "") > 0){
-        int num = atoi(buf);
-        if (num > 1){
+        uint32_t num = atoi(buf);
+        if (num > 1 && num < MAX_CONCURRENT_USER_NUM){
             mNumConcurrentUsers = num_clients = num;
-            ALOGI("%s Support concurrent multi users(%d)", __FUNCTION__, mNumConcurrentUsers);
+            ALOGI("%s Support concurrent multi users(%u)", __FUNCTION__, mNumConcurrentUsers);
+        } else if (num == 1) {
+            ALOGI("%s Support only single user(%u)", __FUNCTION__, mNumConcurrentUsers);
+        } else {
+            ALOGE("%s: Invalid request(%u), please check it again", __FUNCTION__,
+                  mNumConcurrentUsers);
         }
     }
     mClientFdPromises.resize(num_clients);
@@ -168,6 +172,10 @@ bool ConnectionsListener::threadLoop() {
             }
             memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
             free(user_id_packet);
+            if (client_id < 0 || client_id >= mNumConcurrentUsers) {
+                ALOGE("%s: client_id = %u is not valid", __FUNCTION__, client_id);
+                continue;
+            }
         }
         if (mClientsConnected[client_id]) {
             ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);

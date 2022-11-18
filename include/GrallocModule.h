@@ -145,35 +145,36 @@ public:
 
 private:
     GrallocModule() {
+        mModule = nullptr;
+        m_major_version = 0;
         const hw_module_t *module = nullptr;
         int ret = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
         if (ret) {
             ALOGE("%s: Failed to get gralloc module: %d", __FUNCTION__, ret);
-        }
-
-        mModule = nullptr;
-        m_major_version = (module->module_api_version >> 8) & 0xff;
-        switch (m_major_version) {
-            case 0:
-                mModule = reinterpret_cast<const gralloc_module_t *>(module);
-                break;
-            case 1:
+        } else {
+            m_major_version = (module->module_api_version >> 8) & 0xff;
+            switch (m_major_version) {
+                case 0:
+                    mModule = reinterpret_cast<const gralloc_module_t *>(module);
+                    break;
+                case 1:
 #ifdef USE_GRALLOC1
-                gralloc1_open(module, &m_gralloc1_device);
-                m_gralloc1_lock = (GRALLOC1_PFN_LOCK)m_gralloc1_device->getFunction(
-                    m_gralloc1_device, GRALLOC1_FUNCTION_LOCK);
-                m_gralloc1_unlock = (GRALLOC1_PFN_UNLOCK)m_gralloc1_device->getFunction(
-                    m_gralloc1_device, GRALLOC1_FUNCTION_UNLOCK);
-                m_gralloc1_lockflex = (GRALLOC1_PFN_LOCK_FLEX)m_gralloc1_device->getFunction(
-                    m_gralloc1_device, GRALLOC1_FUNCTION_LOCK_FLEX);
-                m_gralloc1_getNumFlexPlanes =
-                    (GRALLOC1_PFN_GET_NUM_FLEX_PLANES)m_gralloc1_device->getFunction(
-                        m_gralloc1_device, GRALLOC1_FUNCTION_GET_NUM_FLEX_PLANES);
-                break;
+                    gralloc1_open(module, &m_gralloc1_device);
+                    m_gralloc1_lock = (GRALLOC1_PFN_LOCK)m_gralloc1_device->getFunction(
+                        m_gralloc1_device, GRALLOC1_FUNCTION_LOCK);
+                    m_gralloc1_unlock = (GRALLOC1_PFN_UNLOCK)m_gralloc1_device->getFunction(
+                        m_gralloc1_device, GRALLOC1_FUNCTION_UNLOCK);
+                    m_gralloc1_lockflex = (GRALLOC1_PFN_LOCK_FLEX)m_gralloc1_device->getFunction(
+                        m_gralloc1_device, GRALLOC1_FUNCTION_LOCK_FLEX);
+                    m_gralloc1_getNumFlexPlanes =
+                        (GRALLOC1_PFN_GET_NUM_FLEX_PLANES)m_gralloc1_device->getFunction(
+                            m_gralloc1_device, GRALLOC1_FUNCTION_GET_NUM_FLEX_PLANES);
+                    break;
 #endif
-            default:
-                ALOGE("[Gralloc] unknown gralloc major version (%d)", m_major_version);
-                break;
+                default:
+                    ALOGE("[Gralloc] unknown gralloc major version (%d)", m_major_version);
+                    break;
+            }
         }
     }
     const gralloc_module_t *mModule;

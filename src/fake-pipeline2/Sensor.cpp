@@ -126,23 +126,25 @@ Sensor::~Sensor() { shutDown(); }
 status_t Sensor::startUp() {
     ALOGI(LOG_TAG "%s: E", __FUNCTION__);
 
-    int res;
+    int ret;
     mCapturedBuffers = nullptr;
 
     const hw_module_t *module = nullptr;
-    int ret = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+    ret = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
     if (ret) {
         ALOGE(LOG_TAG "%s: Failed to get gralloc module: %d", __FUNCTION__, ret);
+        return ret;
     }
+
     m_major_version = (module->module_api_version >> 8) & 0xff;
     ALOGI(LOG_TAG " m_major_version[%d]", m_major_version);
 
-    res = run("Sensor", ANDROID_PRIORITY_URGENT_DISPLAY);
+    ret = run("Sensor", ANDROID_PRIORITY_URGENT_DISPLAY);
 
-    if (res != OK) {
-        ALOGE("Unable to start up sensor capture thread: %d", res);
+    if (ret != OK) {
+        ALOGE("Unable to start up sensor capture thread: %d", ret);
     }
-    return res;
+    return ret;
 }
 
 status_t Sensor::shutDown() {

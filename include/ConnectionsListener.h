@@ -23,6 +23,8 @@
 #include <future>
 #include <vector>
 
+#define MAX_CONCURRENT_USER_NUM  8
+
 namespace android {
 
 class ConnectionsListener : public Thread {
@@ -40,7 +42,7 @@ private:
     bool mRunning;
     int mSocketServerFd = -1;
     std::string mSocketPath;
-    int mNumConcurrentUsers = 0;
+    uint32_t mNumConcurrentUsers = 0;
     std::vector<std::promise<int>> mClientFdPromises;
     std::vector<bool> mClientsConnected;
 };

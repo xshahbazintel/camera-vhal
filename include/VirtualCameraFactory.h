@@ -204,7 +204,7 @@ private:
      * Data members.
      ***************************************************************************/
     // Array of cameras available for the emulation.
-    std::map<int,VirtualBaseCamera*>mVirtualCameras;
+    std::map<int,VirtualBaseCamera*> mVirtualCameras;
     std::vector<std::vector<int>> mClientCameras;
 
     // Flags whether or not constructor has succeeded.
