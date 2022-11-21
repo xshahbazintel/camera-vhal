@@ -222,12 +222,6 @@ private:
 
     status_t sendCommandToClient(socket::camera_cmd_t cmd);
 
-    enum DecoderResolution {
-        DECODER_SUPPORTED_RESOLUTION_480P = 480,
-        DECODER_SUPPORTED_RESOLUTION_720P = 720,
-        DECODER_SUPPORTED_RESOLUTION_1080P = 1080,
-    };
-
     /** Processing thread for sending out results */
 
     class ReadoutThread : public Thread, private JpegCompressor::JpegListener {

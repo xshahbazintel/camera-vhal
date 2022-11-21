@@ -66,6 +66,13 @@ public:
         NUM_CAPABILITIES
     };
 
+    /* List of resolutions suported by the decoder */
+    enum DecoderResolution {
+        DECODER_SUPPORTED_RESOLUTION_480P = 480,
+        DECODER_SUPPORTED_RESOLUTION_720P = 720,
+        DECODER_SUPPORTED_RESOLUTION_1080P = 1080,
+    };
+
     // Char strings for above enum, with size NUM_CAPABILITIES
     static const char *sAvailableCapabilitiesStrings[];
 
