@@ -1062,7 +1062,7 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
 
     int cameraInputDataSize;
 
-    if (!gIsInFrameI420 && !gIsInFrameH264) {
+    if (!gIsInFrameI420 && !gIsInFrameH264 && !gIsInFrameMJPG) {
         ALOGE("%s Exit - only H264, H265, I420 input frames supported", __FUNCTION__);
         return;
     }
@@ -1091,7 +1091,7 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
     //For default resolution 640x480p
     if (width == (uint32_t)mSrcWidth && height == (uint32_t)mSrcHeight) {
         // For I420 input
-        if (gIsInFrameI420) {
+        if (gIsInFrameI420 || gIsInFrameMJPG) {
             ALOGVV(LOG_TAG "%s: I420 to NV21 conversion without scaling: Size = %dx%d",
                    __FUNCTION__, width, height);
 
@@ -1153,7 +1153,7 @@ void Sensor::captureNV21(uint8_t *img, uint32_t gain, uint32_t width, uint32_t h
         // For upscaling and downscaling all other resolutions below max supported resolution.
     } else {
         // For I420 input
-        if (gIsInFrameI420) {
+        if (gIsInFrameI420 || gIsInFrameMJPG) {
             ALOGVV(LOG_TAG "%s: I420 to NV21 with scaling: Size = %dx%d", __FUNCTION__, width,
                    height);
 
