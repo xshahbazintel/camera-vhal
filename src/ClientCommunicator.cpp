@@ -295,7 +295,12 @@ void ClientCommunicator::configureCapabilities() {
         // Wait till complete the metadata update for a camera.
         {
             Mutex::Autolock al(sMutex);
-            gVirtualCameraFactory.createVirtualRemoteCamera(mVideoDecoder, mClientId, camera_info[i]);
+            // Dynamic client configuration is not supported when camera
+            // session is active
+            if ((mCameraSessionState != CameraSessionState::kCameraOpened)
+                  && (mCameraSessionState != CameraSessionState::kDecodingStarted)) {
+                gVirtualCameraFactory.createVirtualRemoteCamera(mVideoDecoder, mClientId, camera_info[i]);
+            }
         }
     }
 
@@ -394,7 +399,12 @@ bool ClientCommunicator::clientThread() {
                            __FUNCTION__, mClientId, size, header.size);
                     if (header.type == REQUEST_CAPABILITY && header.size == 0) {
                         ALOGI("%s(%d): Configure capability", __FUNCTION__, mClientId);
-                        gVirtualCameraFactory.clearCameraInfo(mClientId);
+                        // Dynamic client configuration is not supported when camera
+                        // session is active
+                        if ((mCameraSessionState != CameraSessionState::kCameraOpened)
+                              && (mCameraSessionState != CameraSessionState::kDecodingStarted)) {
+                            gVirtualCameraFactory.clearCameraInfo(mClientId);
+                        }
                         configureCapabilities();
                         continue;
                     }
