@@ -57,13 +57,14 @@ void VirtualCameraFactory::readSystemProperties() {
     mNumClients = 1;
     if (property_get("ro.concurrent.user.num", prop_val, "") > 0){
         int num = atoi(prop_val);
-        if (num > 1 && num < MAX_CONCURRENT_USER_NUM){
+        if (num > 1 && num <= MAX_CONCURRENT_USER_NUM){
             mNumClients = num;
-            ALOGI("%s: Support concurrent multi users(%d)", __FUNCTION__, mNumClients);
+            ALOGI("%s: Support %d concurrent multi users", __FUNCTION__, num);
         } else if (num == 1) {
-            ALOGI("%s: Support only single user(%d)", __FUNCTION__, mNumClients);
+            ALOGI("%s: Support only single user", __FUNCTION__);
         } else {
-            ALOGE("%s: Invalid request(%d), please check it again", __FUNCTION__, mNumClients);
+            ALOGE("%s: Unsupported number of multi-user request(%d), please check it again",
+                  __FUNCTION__, num);
         }
     }
     ALOGI("%s - gIsInFrameH264: %d, gIsInFrameI420: %d, mNumClients: %d",

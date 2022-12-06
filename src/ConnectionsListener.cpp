@@ -42,14 +42,14 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
     uint32_t num_clients = 1;
     if (property_get("ro.concurrent.user.num", buf, "") > 0){
         uint32_t num = atoi(buf);
-        if (num > 1 && num < MAX_CONCURRENT_USER_NUM){
+        if (num > 1 && num <= MAX_CONCURRENT_USER_NUM){
             mNumConcurrentUsers = num_clients = num;
-            ALOGI("%s Support concurrent multi users(%u)", __FUNCTION__, mNumConcurrentUsers);
+            ALOGI("%s Support %u concurrent multi users", __FUNCTION__, num);
         } else if (num == 1) {
-            ALOGI("%s Support only single user(%u)", __FUNCTION__, mNumConcurrentUsers);
+            ALOGI("%s Support only single user", __FUNCTION__);
         } else {
-            ALOGE("%s: Invalid request(%u), please check it again", __FUNCTION__,
-                  mNumConcurrentUsers);
+            ALOGE("%s: Unsupported number of multi-user request(%u), please check it again",
+                  __FUNCTION__, num);
         }
     }
     mClientFdPromises.resize(num_clients);
