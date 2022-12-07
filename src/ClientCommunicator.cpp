@@ -131,7 +131,7 @@ void ClientCommunicator::configureCapabilities() {
     }
     ALOGI("%s(%d): Sent CAPABILITY packet to client", __FUNCTION__, mClientId);
 
-    if ((recv_size = recv(mClientFd, (char *)&header, sizeof(camera_header_t), MSG_WAITALL)) < 0) {
+    if ((recv_size = recv(mClientFd, &header, sizeof(camera_header_t), MSG_WAITALL)) < 0) {
         ALOGE("%s(%d): Failed to receive header, err: %s ", __FUNCTION__, mClientId, strerror(errno));
         goto out;
     }
@@ -154,7 +154,7 @@ void ClientCommunicator::configureCapabilities() {
     camera_info_t camera_info[mNumOfCamerasRequested];
     memset(camera_info, 0, sizeof(camera_info));
 
-    if ((recv_size = recv(mClientFd, (char *)&camera_info,
+    if ((recv_size = recv(mClientFd, camera_info,
                           header.size, MSG_WAITALL)) < 0) {
         ALOGE("%s(%d): Failed to receive camera info, err: %s ", __FUNCTION__, mClientId, strerror(errno));
         goto out;
@@ -379,7 +379,7 @@ bool ClientCommunicator::clientThread() {
             if (gIsInFrameI420) {
                 ssize_t size = 0;
 
-                if ((size = recv(mClientFd, (char *)fbuffer, 460800, MSG_WAITALL)) > 0) {
+                if ((size = recv(mClientFd, fbuffer, 460800, MSG_WAITALL)) > 0) {
                     if (mCameraBuffer) {
                         mCameraBuffer->clientRevCount++;
                         memcpy(mCameraBuffer->clientBuf.buffer, fbuffer, 460800);
@@ -393,7 +393,7 @@ bool ClientCommunicator::clientThread() {
             } else if (gIsInFrameH264) {  // default H264
                 ssize_t size = 0;
                 camera_header_t header = {};
-                if ((size = recv(mClientFd, (char *)&header, sizeof(camera_header_t),
+                if ((size = recv(mClientFd, &header, sizeof(camera_header_t),
                                  MSG_WAITALL)) > 0) {
                     ALOGVV("%s(%d): Received Header %zd bytes. Payload size: %u",
                            __FUNCTION__, mClientId, size, header.size);
@@ -425,7 +425,7 @@ bool ClientCommunicator::clientThread() {
                     }
 
                     // recv frame
-                    if ((size = recv(mClientFd, (char *)mSocketBuffer.data(), header.size,
+                    if ((size = recv(mClientFd, mSocketBuffer.data(), header.size,
                                      MSG_WAITALL)) > 0) {
                         if (size < header.size) {
                             ALOGW("%s(%d) : Incomplete data read %zd/%u bytes", __func__, mClientId,
@@ -433,7 +433,7 @@ bool ClientCommunicator::clientThread() {
                             size_t remaining_size = header.size;
                             remaining_size -= size;
                             while (remaining_size > 0) {
-                                if ((size = recv(mClientFd, (char *)mSocketBuffer.data() + size,
+                                if ((size = recv(mClientFd, mSocketBuffer.data() + size,
                                                  remaining_size, MSG_WAITALL)) > 0) {
                                     remaining_size -= size;
                                     ALOGI("%s(%d) : Read-%zd after Incomplete data, remaining-%lu",
