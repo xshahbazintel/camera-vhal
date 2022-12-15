@@ -432,14 +432,13 @@ bool ClientCommunicator::clientThread() {
                         if (size < header.size) {
                             ALOGW("%s(%d) : Incomplete data read %zd/%u bytes", __func__, mClientId,
                                   size, header.size);
-                            size_t remaining_size = header.size;
-                            remaining_size -= size;
-                            while (remaining_size > 0) {
-                                if ((size = recv(mClientFd, mSocketBuffer.data() + size,
-                                                 remaining_size, MSG_WAITALL)) > 0) {
-                                    remaining_size -= size;
+                            size_t bytes_read = size;
+                            while (bytes_read < header.size) {
+                                if ((size = recv(mClientFd, mSocketBuffer.data() + bytes_read,
+                                                 header.size - bytes_read, MSG_WAITALL)) > 0) {
+                                    bytes_read += size;
                                     ALOGI("%s(%d) : Read-%zd after Incomplete data, remaining-%lu",
-                                          __func__, mClientId, size, remaining_size);
+                                          __func__, mClientId, size, header.size - bytes_read);
                                 }
                             }
                             size = header.size;
