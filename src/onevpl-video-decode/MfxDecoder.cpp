@@ -26,7 +26,7 @@ MfxDecoder::MfxDecoder() {
     ALOGV("%s", __func__);
 
     mDecImplementation = MFX_IMPL_AUTO_ANY | MFX_IMPL_VIA_ANY;
-
+    mCodecType = DECODER_H264;
     mDecodeMemType = SYSTEM_MEMORY;
     mOutFrameSurface = nullptr;
     mOutSurfaceNum = 0;
@@ -38,12 +38,7 @@ MfxDecoder::MfxDecoder() {
     mResHeight = 0;
 
     mIsDecoderInitialized = false;
-
     memset(&mMfxVideoDecParams, 0, sizeof(mMfxVideoDecParams));
-
-#ifdef GET_MFX_VIDEO_PARAMETERS
-    mIsGetVideoParametersDone = false;
-#endif
 }
 
 MfxDecoder::~MfxDecoder() {
@@ -84,6 +79,114 @@ mfxStatus MfxDecoder::InitDecoder() {
 
     mfxStatus mfx_sts = MFX_ERR_NONE;
 
+    memset(&mMfxVideoDecParams, 0, sizeof(mMfxVideoDecParams));
+    if (mCodecType == DECODER_H264) {
+        mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_AVC;
+    } else if (mCodecType == DECODER_H265) {
+        mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_HEVC;
+    } else {
+        ALOGE("%s, CodecType %d is Invalid", __func__, mCodecType);
+	return MFX_ERR_INCOMPATIBLE_VIDEO_PARAM;
+    }
+    mMfxVideoDecParams.IOPattern   = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+    // Parses the input bitstream and fills the mMfxVideoDecParams structure.
+    mfx_sts = MFXVideoDECODE_DecodeHeader(mMfxDecSession,
+                                          mMfxFrameConstructor->GetMfxBitstream().get(),
+                                          &mMfxVideoDecParams);
+
+    if (mfx_sts != MFX_ERR_NONE) {
+        ALOGE("%s, MFXVideoDECODE_DecodeHeader failed with mfx_sts = %d", __func__, mfx_sts);
+        return mfx_sts;
+    }
+
+    ALOGV("%s: AllocId = %u, AsyncDepth = %hu, "
+          "mfx.LowPower = %hu, mfx.BRCParamMultiplier = %hu", __func__,
+          mMfxVideoDecParams.AllocId, mMfxVideoDecParams.AsyncDepth,
+          mMfxVideoDecParams.mfx.LowPower, mMfxVideoDecParams.mfx.BRCParamMultiplier);
+    ALOGV("%s: mfx.FrameInfo.FrameRateExtN = %u, mfx.FrameInfo.FrameRateExtD = %u, "
+          "mfx.FrameInfo.AspectRatioW = %hu, mfx.FrameInfo.AspectRatioH = %hu, "
+          "mfx.FrameInfo.CropX = %hu, mfx.FrameInfo.CropY = %hu, "
+          "mfx.FrameInfo.CropW = %hu, mfx.FrameInfo.CropH = %hu, "
+          "mfx.FrameInfo.ChannelId = %hu, mfx.FrameInfo.BitDepthLuma = %hu, "
+          "mfx.FrameInfo.BitDepthChroma = %hu, mfx.FrameInfo.Shift = %hu, "
+          "mfx.FrameInfo.FourCC = %u, mfx.FrameInfo.Width = %hu, "
+          "mfx.FrameInfo.Height = %hu, mfx.FrameInfo.BufferSize = %llu, "
+          "mfx.FrameInfo.PicStruct = %hu, mfx.FrameInfo.ChromaFormat = %hu", __func__,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtN,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtD,
+          mMfxVideoDecParams.mfx.FrameInfo.AspectRatioW,
+          mMfxVideoDecParams.mfx.FrameInfo.AspectRatioH,
+          mMfxVideoDecParams.mfx.FrameInfo.CropX, mMfxVideoDecParams.mfx.FrameInfo.CropY,
+          mMfxVideoDecParams.mfx.FrameInfo.CropW, mMfxVideoDecParams.mfx.FrameInfo.CropH,
+          mMfxVideoDecParams.mfx.FrameInfo.ChannelId, mMfxVideoDecParams.mfx.FrameInfo.BitDepthLuma,
+          mMfxVideoDecParams.mfx.FrameInfo.BitDepthChroma, mMfxVideoDecParams.mfx.FrameInfo.Shift,
+          mMfxVideoDecParams.mfx.FrameInfo.FourCC, mMfxVideoDecParams.mfx.FrameInfo.Width,
+          mMfxVideoDecParams.mfx.FrameInfo.Height, mMfxVideoDecParams.mfx.FrameInfo.BufferSize,
+          mMfxVideoDecParams.mfx.FrameInfo.PicStruct,
+          mMfxVideoDecParams.mfx.FrameInfo.ChromaFormat);
+    ALOGV("%s: mfx.FrameInfo.FrameId.TemporalId = %hu, mfx.FrameInfo.FrameId.PriorityId = %hu, "
+          "mfx.FrameInfo.FrameId.DependencyId = %hu, mfx.FrameInfo.FrameId.QualityId = %hu, "
+          "mfx.FrameInfo.FrameId.ViewId = %hu", __func__,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameId.TemporalId,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameId.PriorityId,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameId.DependencyId,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameId.QualityId,
+          mMfxVideoDecParams.mfx.FrameInfo.FrameId.ViewId);
+
+    ALOGV("%s: mfx.CodecId = %u, mfx.CodecProfile = %hu, "
+          "mfx.CodecLevel = %hu, mfx.TargetUsage = %hu, "
+          "mfx.GopPicSize = %hu, mfx.GopRefDist = %hu, "
+          "mfx.GopOptFlag = %hu, mfx.IdrInterval = %hu, "
+          "mfx.InitialDelayInKB = %hu, mfx.QPI = %hu, "
+          "mfx.Accuracy = %hu, mfx.BufferSizeInKB = %hu, "
+          "mfx.TargetKbps = %hu, mfx.QPP = %hu, "
+          "mfx.ICQQuality = %hu, mfx.MaxKbps = %hu, "
+          "mfx.QPB = %hu, mfx.Convergence = %hu, "
+          "mfx.NumSlice = %hu, mfx.NumRefFrame = %hu, "
+          "mfx.EncodedOrder = %hu, mfx.DecodedOrder = %hu, "
+          "mfx.ExtendedPicStruct = %hu, mfx.TimeStampCalc = %hu, "
+          "mfx.SliceGroupsPresent = %hu", __func__, mMfxVideoDecParams.mfx.CodecId,
+          mMfxVideoDecParams.mfx.CodecProfile, mMfxVideoDecParams.mfx.CodecLevel,
+          mMfxVideoDecParams.mfx.TargetUsage, mMfxVideoDecParams.mfx.GopPicSize,
+          mMfxVideoDecParams.mfx.GopRefDist, mMfxVideoDecParams.mfx.GopOptFlag,
+          mMfxVideoDecParams.mfx.IdrInterval, mMfxVideoDecParams.mfx.InitialDelayInKB,
+          mMfxVideoDecParams.mfx.QPI, mMfxVideoDecParams.mfx.Accuracy,
+          mMfxVideoDecParams.mfx.BufferSizeInKB, mMfxVideoDecParams.mfx.TargetKbps,
+          mMfxVideoDecParams.mfx.QPP, mMfxVideoDecParams.mfx.ICQQuality,
+          mMfxVideoDecParams.mfx.MaxKbps, mMfxVideoDecParams.mfx.QPB,
+          mMfxVideoDecParams.mfx.Convergence, mMfxVideoDecParams.mfx.NumSlice,
+          mMfxVideoDecParams.mfx.NumRefFrame, mMfxVideoDecParams.mfx.EncodedOrder,
+          mMfxVideoDecParams.mfx.DecodedOrder, mMfxVideoDecParams.mfx.ExtendedPicStruct,
+          mMfxVideoDecParams.mfx.TimeStampCalc, mMfxVideoDecParams.mfx.SliceGroupsPresent);
+    ALOGV("%s: mfx.MaxDecFrameBuffering = %hu, mfx.EnableReallocRequest = %hu, "
+          "mfx.FilmGrain = %hu, mfx.IgnoreLevelConstrain = %hu, "
+          "mfx.SkipOutput = %hu, mfx.JPEGChromaFormat = %hu, "
+          "mfx.Rotation = %hu, mfx.JPEGColorFormat = %hu, "
+          "mfx.InterleavedDec = %hu, mfx.Interleaved = %hu, "
+          "mfx.Quality = %hu, mfx.RestartInterval = %hu",
+          __func__, mMfxVideoDecParams.mfx.MaxDecFrameBuffering,
+          mMfxVideoDecParams.mfx.EnableReallocRequest,
+          mMfxVideoDecParams.mfx.FilmGrain, mMfxVideoDecParams.mfx.IgnoreLevelConstrain,
+          mMfxVideoDecParams.mfx.SkipOutput, mMfxVideoDecParams.mfx.JPEGChromaFormat,
+          mMfxVideoDecParams.mfx.Rotation, mMfxVideoDecParams.mfx.JPEGColorFormat,
+          mMfxVideoDecParams.mfx.InterleavedDec, mMfxVideoDecParams.mfx.Interleaved,
+          mMfxVideoDecParams.mfx.Quality, mMfxVideoDecParams.mfx.RestartInterval);
+    ALOGV("%s: Protected = %hu, IOPattern = %hu, "
+          "NumExtParam = %hu", __func__, mMfxVideoDecParams.Protected,
+          mMfxVideoDecParams.IOPattern, mMfxVideoDecParams.NumExtParam);
+
+    for (int i = 0; i < 4; i++) {
+        ALOGV("%s: mfx.SamplingFactorH[%d] = %hhu, mfx.SamplingFactorV[%d] = %hhu",
+              __func__, i, mMfxVideoDecParams.mfx.SamplingFactorH[i], i,
+              mMfxVideoDecParams.mfx.SamplingFactorV[i]);
+    }
+
+    for (int i = 0; i < mMfxVideoDecParams.NumExtParam; ++i) {
+        ALOGV("%s: ExtParam[%d]->BufferId = %u, ExtParam[%d]->BufferSz = %u",
+              __func__, i, mMfxVideoDecParams.ExtParam[i]->BufferId, i,
+              mMfxVideoDecParams.ExtParam[i]->BufferSz);
+    }
+
     // Query required surfaces number for decoder.
     mfxFrameAllocRequest decRequest = {};
     mfx_sts = MFXVideoDECODE_QueryIOSurf(mMfxDecSession, &mMfxVideoDecParams,
@@ -116,15 +219,6 @@ mfxStatus MfxDecoder::InitDecoder() {
     if (mfx_sts == MFX_ERR_NONE) {
 	// Allocates memory and prepares tables and necessary structures for decoding.
         mfx_sts = MFXVideoDECODE_Init(mMfxDecSession, &mMfxVideoDecParams);
-
-        if (mfx_sts == MFX_WRN_PARTIAL_ACCELERATION) {
-            ALOGW("%s: [warning] returns MFX_WRN_PARTIAL_ACCELERATION", __func__);
-            mfx_sts = MFX_ERR_NONE;
-        } else if (mfx_sts == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM) {
-            ALOGW("%s: [warning] returns MFX_WRN_INCOMPATIBLE_VIDEO_PARAM", __func__);
-            mfx_sts = MFX_ERR_NONE;
-        }
-
         if (mfx_sts == MFX_ERR_NONE) {
             // Retrieves current working parameters to the specified output structure.
             mfx_sts = MFXVideoDECODE_GetVideoParam(mMfxDecSession, &mMfxVideoDecParams);
@@ -138,94 +232,10 @@ mfxStatus MfxDecoder::InitDecoder() {
 
     if (mfx_sts != MFX_ERR_NONE) {
         ALOGE("%s: Failed!, ret = %d", __func__, mfx_sts);
-        Release();
+        FreeDecoder();
     }
 
     ALOGV("%s - X", __func__);
-    return mfx_sts;
-}
-
-mfxStatus MfxDecoder::SetVideoParameters(uint32_t codec_type) {
-    ALOGV("%s - E", __func__);
-
-    mfxStatus mfx_sts = MFX_ERR_NONE;
-    memset(&mMfxVideoDecParams, 0, sizeof(mMfxVideoDecParams));
-
-    // Update video decoder params.
-    mMfxVideoDecParams.AsyncDepth = 1;
-    mMfxVideoDecParams.mfx.FrameInfo.BitDepthLuma = 8;
-    mMfxVideoDecParams.mfx.FrameInfo.BitDepthChroma = 8;
-    mMfxVideoDecParams.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
-    mMfxVideoDecParams.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
-    mMfxVideoDecParams.mfx.FrameInfo.CropX = 0;
-    mMfxVideoDecParams.mfx.FrameInfo.CropY = 0;
-    mMfxVideoDecParams.mfx.FrameInfo.CropW = mResWidth;
-    mMfxVideoDecParams.mfx.FrameInfo.CropH = mResHeight;
-    mMfxVideoDecParams.mfx.FrameInfo.Width = mResWidth;
-    mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtN = 30;
-    mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtD = 1;
-    mMfxVideoDecParams.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-    mMfxVideoDecParams.IOPattern = (mDecodeMemType == SYSTEM_MEMORY) ?
-        MFX_IOPATTERN_OUT_SYSTEM_MEMORY : MFX_IOPATTERN_OUT_VIDEO_MEMORY;
-
-    switch (codec_type) {
-        case DECODER_H264:
-            mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_AVC;
-            mMfxVideoDecParams.mfx.CodecProfile = MFX_PROFILE_AVC_BASELINE;
-            mMfxVideoDecParams.mfx.IdrInterval = 1;
-            mMfxVideoDecParams.mfx.MaxDecFrameBuffering = 1;
-            mMfxVideoDecParams.mfx.SamplingFactorH[0] = 1;
-            switch (mResHeight) {
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_480P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_AVC_31;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 31457920;
-                    break;
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_720P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_AVC_32;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 47187200;
-                    break;
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_1080P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_AVC_42;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight +
-                                                              CODEC_ROUND_OFF_PIXELS_8;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 71305088;
-                    break;
-            }
-            break;
-        case DECODER_H265:
-            mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_HEVC;
-            mMfxVideoDecParams.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
-            mMfxVideoDecParams.mfx.IdrInterval = 2;
-            mMfxVideoDecParams.mfx.MaxDecFrameBuffering = 2;
-            mMfxVideoDecParams.mfx.SamplingFactorH[0] = 2;
-            switch (mResHeight) {
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_480P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_HEVC_31;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 31457920;
-                    break;
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_720P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_HEVC_31;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight +
-                                                              CODEC_ROUND_OFF_PIXELS_16;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 48235776;
-                    break;
-                case android::VirtualCamera3::DECODER_SUPPORTED_RESOLUTION_1080P:
-                    mMfxVideoDecParams.mfx.CodecLevel = MFX_LEVEL_HEVC_4;
-                    mMfxVideoDecParams.mfx.FrameInfo.Height = mResHeight +
-                                                              CODEC_ROUND_OFF_PIXELS_8;
-                    mMfxVideoDecParams.mfx.FrameInfo.BufferSize = 71305088;
-                    break;
-            }
-            break;
-        default:
-            ALOGE("%s: unhandled codec type!", __func__);
-            mfx_sts =  MFX_ERR_NOT_IMPLEMENTED;
-            break;
-    }
-
     return mfx_sts;
 }
 
@@ -242,15 +252,10 @@ mfxStatus MfxDecoder::Init(uint32_t codec_type, uint32_t width, uint32_t height)
 
     mResWidth = width;
     mResHeight = height;
+    mCodecType = codec_type;
 
     // Create mfx frame constructor to make decoding bitstream.
     mMfxFrameConstructor = std::make_unique<MfxFrameConstructor>();
-
-    mfx_sts = SetVideoParameters(codec_type);
-    if (mfx_sts != MFX_ERR_NONE) {
-        ALOGE("%s: Unsupported codec type, failed to continue", __func__);
-        return mfx_sts;
-    }
 
     // Load the OneVPL dispatcher handler.
     mMfxLoader = MFXLoad();
@@ -344,16 +349,6 @@ mfxStatus MfxDecoder::Init(uint32_t codec_type, uint32_t width, uint32_t height)
         return mfx_sts;
     }
 
-    if (!mIsDecoderInitialized) {
-        mfx_sts = InitDecoder();
-        if (mfx_sts == MFX_ERR_NONE) {
-            ALOGI("%s: Initialized mfx decoder successfully!", __func__);
-        } else {
-            ALOGE("%s: Couldn't initialize mfx decoder", __func__);
-            return mfx_sts;
-        }
-    }
-
     ALOGV("%s - X", __func__);
     return mfx_sts;
 }
@@ -375,6 +370,23 @@ void MfxDecoder::ClearFrameSurface() {
     }
     mOutFrameSurface = nullptr;
     mOutSurfaceNum = 0;
+    ALOGV("%s - X", __func__);
+}
+
+void MfxDecoder::FreeDecoder() {
+    ALOGV("%s - E", __func__);
+
+    mfxStatus mfx_res = MFX_ERR_NONE;
+
+    // Terminates the current decoding operation and deallocates all memory.
+    mfx_res = MFXVideoDECODE_Close(mMfxDecSession);
+    if (mfx_res == MFX_ERR_NONE) {
+        ALOGI("%s: Current decoding operation terminated successfully.", __func__);
+    } else {
+        ALOGW("%s: [warning] Current decoding couldn't be terminated. Failed.", __func__);
+    }
+
+    ClearFrameSurface();
     ALOGV("%s - X", __func__);
 }
 
@@ -405,13 +417,9 @@ void MfxDecoder::Release() {
         MFXUnload(mMfxLoader);
         mMfxLoader = nullptr;
     }
-
-    mIsDecoderInitialized = false;
-#ifdef GET_MFX_VIDEO_PARAMETERS
-    mIsGetVideoParametersDone = false;
-#endif
     mResWidth = 0;
     mResHeight = 0;
+    mIsDecoderInitialized = false;
     ALOGI("%s: Decoder closed and released successfully!", __func__);
 }
 
@@ -441,135 +449,12 @@ void MfxDecoder::GetAvailableSurface(mfxFrameSurface1 **pWorkSurface) {
     ALOGV("%s, pWorkSurface = %p", __func__, *pWorkSurface);
 }
 
-#ifdef GET_MFX_VIDEO_PARAMETERS
-mfxStatus MfxDecoder::GetVideoParameters(mfxBitstream **bit_stream) {
-    ALOGV("%s - E", __func__);
-
-    mfxStatus mfx_sts = MFX_ERR_NONE;
-
-    // Parses the input bitstream and fills the m_mfxVideoParam structure.
-    mfx_sts = MFXVideoDECODE_DecodeHeader(mMfxDecSession, *bit_stream,
-                                          &mMfxVideoDecParams);
-    if (mfx_sts != MFX_ERR_NONE) {
-        ALOGE("%s: MFXVideoDECODE_DecodeHeader Failed. ret = %d", __func__, mfx_sts);
-        return mfx_sts;
-    }
-
-    ALOGI("%s: AllocId = %u, AsyncDepth = %hu, "
-          "mfx.LowPower = %hu, mfx.BRCParamMultiplier = %hu", __func__,
-          mMfxVideoDecParams.AllocId, mMfxVideoDecParams.AsyncDepth,
-          mMfxVideoDecParams.mfx.LowPower, mMfxVideoDecParams.mfx.BRCParamMultiplier);
-    ALOGI("%s: mfx.FrameInfo.FrameRateExtN = %u, mfx.FrameInfo.FrameRateExtD = %u, "
-          "mfx.FrameInfo.AspectRatioW = %hu, mfx.FrameInfo.AspectRatioH = %hu, "
-          "mfx.FrameInfo.CropX = %hu, mfx.FrameInfo.CropY = %hu, "
-          "mfx.FrameInfo.CropW = %hu, mfx.FrameInfo.CropH = %hu, "
-          "mfx.FrameInfo.ChannelId = %hu, mfx.FrameInfo.BitDepthLuma = %hu, "
-          "mfx.FrameInfo.BitDepthChroma = %hu, mfx.FrameInfo.Shift = %hu, "
-          "mfx.FrameInfo.FourCC = %u, mfx.FrameInfo.Width = %hu, "
-          "mfx.FrameInfo.Height = %hu, mfx.FrameInfo.BufferSize = %llu, "
-          "mfx.FrameInfo.PicStruct = %hu, mfx.FrameInfo.ChromaFormat = %hu", __func__,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtN,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameRateExtD,
-          mMfxVideoDecParams.mfx.FrameInfo.AspectRatioW,
-          mMfxVideoDecParams.mfx.FrameInfo.AspectRatioH,
-          mMfxVideoDecParams.mfx.FrameInfo.CropX, mMfxVideoDecParams.mfx.FrameInfo.CropY,
-          mMfxVideoDecParams.mfx.FrameInfo.CropW, mMfxVideoDecParams.mfx.FrameInfo.CropH,
-          mMfxVideoDecParams.mfx.FrameInfo.ChannelId, mMfxVideoDecParams.mfx.FrameInfo.BitDepthLuma,
-          mMfxVideoDecParams.mfx.FrameInfo.BitDepthChroma, mMfxVideoDecParams.mfx.FrameInfo.Shift,
-          mMfxVideoDecParams.mfx.FrameInfo.FourCC, mMfxVideoDecParams.mfx.FrameInfo.Width,
-          mMfxVideoDecParams.mfx.FrameInfo.Height, mMfxVideoDecParams.mfx.FrameInfo.BufferSize,
-          mMfxVideoDecParams.mfx.FrameInfo.PicStruct,
-          mMfxVideoDecParams.mfx.FrameInfo.ChromaFormat);
-    ALOGI("%s: mfx.FrameInfo.FrameId.TemporalId = %hu, mfx.FrameInfo.FrameId.PriorityId = %hu, "
-          "mfx.FrameInfo.FrameId.DependencyId = %hu, mfx.FrameInfo.FrameId.QualityId = %hu, "
-          "mfx.FrameInfo.FrameId.ViewId = %hu", __func__,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameId.TemporalId,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameId.PriorityId,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameId.DependencyId,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameId.QualityId,
-          mMfxVideoDecParams.mfx.FrameInfo.FrameId.ViewId);
-    ALOGI("%s: mfx.CodecId = %u, mfx.CodecProfile = %hu, "
-          "mfx.CodecLevel = %hu, mfx.TargetUsage = %hu, "
-          "mfx.GopPicSize = %hu, mfx.GopRefDist = %hu, "
-          "mfx.GopOptFlag = %hu, mfx.IdrInterval = %hu, "
-          "mfx.InitialDelayInKB = %hu, mfx.QPI = %hu, "
-          "mfx.Accuracy = %hu, mfx.BufferSizeInKB = %hu, "
-          "mfx.TargetKbps = %hu, mfx.QPP = %hu, "
-          "mfx.ICQQuality = %hu, mfx.MaxKbps = %hu, "
-          "mfx.QPB = %hu, mfx.Convergence = %hu, "
-          "mfx.NumSlice = %hu, mfx.NumRefFrame = %hu, "
-          "mfx.EncodedOrder = %hu, mfx.DecodedOrder = %hu, "
-          "mfx.ExtendedPicStruct = %hu, mfx.TimeStampCalc = %hu, "
-          "mfx.SliceGroupsPresent = %hu", __func__, mMfxVideoDecParams.mfx.CodecId,
-          mMfxVideoDecParams.mfx.CodecProfile, mMfxVideoDecParams.mfx.CodecLevel,
-          mMfxVideoDecParams.mfx.TargetUsage, mMfxVideoDecParams.mfx.GopPicSize,
-          mMfxVideoDecParams.mfx.GopRefDist, mMfxVideoDecParams.mfx.GopOptFlag,
-          mMfxVideoDecParams.mfx.IdrInterval, mMfxVideoDecParams.mfx.InitialDelayInKB,
-          mMfxVideoDecParams.mfx.QPI, mMfxVideoDecParams.mfx.Accuracy,
-          mMfxVideoDecParams.mfx.BufferSizeInKB, mMfxVideoDecParams.mfx.TargetKbps,
-          mMfxVideoDecParams.mfx.QPP, mMfxVideoDecParams.mfx.ICQQuality,
-          mMfxVideoDecParams.mfx.MaxKbps, mMfxVideoDecParams.mfx.QPB,
-          mMfxVideoDecParams.mfx.Convergence, mMfxVideoDecParams.mfx.NumSlice,
-          mMfxVideoDecParams.mfx.NumRefFrame, mMfxVideoDecParams.mfx.EncodedOrder,
-          mMfxVideoDecParams.mfx.DecodedOrder, mMfxVideoDecParams.mfx.ExtendedPicStruct,
-          mMfxVideoDecParams.mfx.TimeStampCalc, mMfxVideoDecParams.mfx.SliceGroupsPresent);
-    ALOGI("%s: mfx.MaxDecFrameBuffering = %hu, mfx.EnableReallocRequest = %hu, "
-          "mfx.FilmGrain = %hu, mfx.IgnoreLevelConstrain = %hu, "
-          "mfx.SkipOutput = %hu, mfx.JPEGChromaFormat = %hu, "
-          "mfx.Rotation = %hu, mfx.JPEGColorFormat = %hu, "
-          "mfx.InterleavedDec = %hu, mfx.Interleaved = %hu, "
-          "mfx.Quality = %hu, mfx.RestartInterval = %hu",
-          __func__, mMfxVideoDecParams.mfx.MaxDecFrameBuffering,
-          mMfxVideoDecParams.mfx.EnableReallocRequest,
-          mMfxVideoDecParams.mfx.FilmGrain, mMfxVideoDecParams.mfx.IgnoreLevelConstrain,
-          mMfxVideoDecParams.mfx.SkipOutput, mMfxVideoDecParams.mfx.JPEGChromaFormat,
-          mMfxVideoDecParams.mfx.Rotation, mMfxVideoDecParams.mfx.JPEGColorFormat,
-          mMfxVideoDecParams.mfx.InterleavedDec, mMfxVideoDecParams.mfx.Interleaved,
-          mMfxVideoDecParams.mfx.Quality, mMfxVideoDecParams.mfx.RestartInterval);
-    ALOGI("%s: Protected = %hu, IOPattern = %hu, "
-          "NumExtParam = %hu", __func__, mMfxVideoDecParams.Protected,
-          mMfxVideoDecParams.IOPattern, mMfxVideoDecParams.NumExtParam);
-
-    for (int i = 0; i < 4; i++) {
-        ALOGI("%s: mfx.SamplingFactorH[%d] = %hhu, mfx.SamplingFactorV[%d] = %hhu",
-              __func__, i, mMfxVideoDecParams.mfx.SamplingFactorH[i], i,
-              mMfxVideoDecParams.mfx.SamplingFactorV[i]);
-    }
-
-    for (int i = 0; i < mMfxVideoDecParams.NumExtParam; ++i) {
-        ALOGI("%s: ExtParam[%d]->BufferId = %u, ExtParam[%d]->BufferSz = %u",
-              __func__, i, mMfxVideoDecParams.ExtParam[i]->BufferId, i,
-              mMfxVideoDecParams.ExtParam[i]->BufferSz);
-    }
-
-    if (!mIsDecoderInitialized) {
-        mfx_sts = InitDecoder();
-        if (mfx_sts == MFX_ERR_NONE) {
-            ALOGI("%s: Initialized mfx decoder successfully!", __func__);
-        } else {
-            ALOGE("%s: Couldn't initialize mfx decoder", __func__);
-            return mfx_sts;
-        }
-    }
-
-    mIsGetVideoParametersDone = true;
-
-    return mfx_sts;
-}
-#endif
-
 mfxStatus MfxDecoder::DecodeFrame(uint8_t *pData, size_t size) {
     ALOGV("%s - E", __func__);
 
     mfxStatus mfx_sts = MFX_ERR_NONE;
 
     std::lock_guard<std::mutex> lock(mDecMutex);
-
-    if (!mIsDecoderInitialized) {
-        mfx_sts == MFX_ERR_NOT_INITIALIZED;
-        ALOGE("%s: MFX decoder is not initialized, unable to continue", __func__);
-        return mfx_sts;
-    }
 
     mfx_sts = mMfxFrameConstructor->Load(pData, size, 0, false, true);
     if (mfx_sts == MFX_ERR_NONE) {
@@ -579,19 +464,14 @@ mfxStatus MfxDecoder::DecodeFrame(uint8_t *pData, size_t size) {
         return mfx_sts;
     }
 
-    mfxBitstream *bs = mMfxFrameConstructor->GetMfxBitstream().get();
-
-#ifdef GET_MFX_VIDEO_PARAMETERS
-    if (!mIsGetVideoParametersDone) {
-        mfx_sts = GetVideoParameters(&bs);
-        if (mfx_sts == MFX_ERR_NONE) {
-            ALOGI("%s: Updated mfx video parameters successfully!", __func__);
-        } else {
-            ALOGE("%s: Couldn't initialize mfx decoder", __func__);
+    if ((!mIsDecoderInitialized) && (mMfxLoader != nullptr)) {
+        mfx_sts = InitDecoder();
+        if (mfx_sts != MFX_ERR_NONE) {
+            ALOGE("%s: MFX decoder is not initialized, unable to continue", __func__);
             return mfx_sts;
         }
     }
-#endif
+    mfxBitstream *bs = mMfxFrameConstructor->GetMfxBitstream().get();
 
     do {
         // Check bitsream is empty or not

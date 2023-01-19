@@ -20,8 +20,6 @@
 #ifndef MFX_DECODER_H
 #define MFX_DECODER_H
 
-//#define GET_MFX_VIDEO_PARAMETERS
-
 #include "onevpl-video-decode/MfxFrameConstructor.h"
 #include "VirtualCamera3.h"
 #include <mfxvideo++.h>
@@ -63,18 +61,15 @@ public:
     ~MfxDecoder();
 
     mfxStatus Init(uint32_t codec_type, uint32_t width, uint32_t height);
+    void FreeDecoder();
     void Release();
     mfxStatus DecodeFrame(uint8_t *pData, size_t size);
     bool GetOutput(YCbCrLayout &out);
 
 private:
-    mfxStatus SetVideoParameters(uint32_t codec_type);
     mfxStatus InitDecoder();
     mfxStatus PrepareSurfaces();
     void ClearFrameSurface();
-#ifdef GET_MFX_VIDEO_PARAMETERS
-    mfxStatus GetVideoParameters(mfxBitstream **bit_stream);
-#endif
     void GetAvailableSurface(mfxFrameSurface1 **pWorkSurface);
     uint32_t GetAvailableSurfaceIndex();
 
@@ -91,11 +86,9 @@ private:
 
     uint32_t mResWidth;
     uint32_t mResHeight;
+    uint32_t mCodecType;
 
     bool mIsDecoderInitialized;
-#ifdef GET_MFX_VIDEO_PARAMETERS
-    bool mIsGetVideoParametersDone;
-#endif
 
     std::mutex mDecMutex;
     std::mutex mMemMutex;

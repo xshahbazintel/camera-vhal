@@ -240,9 +240,9 @@ status_t VirtualFakeCamera3::connectCamera() {
         ret = mDecoder->Init(mCodecType, mSrcWidth, mSrcHeight);
         if (ret == MFX_ERR_NONE) {
             mDecoderInitDone = true;
-            ALOGI("%s Video decoder init success!!!", __func__);
+            ALOGI("%s Video mfx init success!!!", __func__);
         } else {
-            ALOGE("%s Video decoder init failed", __func__);
+            ALOGE("%s Video mfx init failed", __func__);
         }
     }
 
