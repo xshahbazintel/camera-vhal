@@ -1686,22 +1686,22 @@ status_t VirtualFakeCamera3::constructStaticInfo() {
 
     if (hasCapability(BACKWARD_COMPATIBLE)) {
         if (width == 1920 && height == 1080) {
-            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                                 availableStreamConfigurationsDefault.begin(),
-                                                 availableStreamConfigurationsDefault.end());
 
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                                 availableStreamConfigurations1080p.begin(),
-                                                 availableStreamConfigurations1080p.end());
+                                                 availableStreamConfigurations480p.begin(),
+                                                 availableStreamConfigurations480p.end());
 
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                                  availableStreamConfigurations720p.begin(),
                                                  availableStreamConfigurations720p.end());
 
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
-                                                 availableStreamConfigurations480p.begin(),
-                                                 availableStreamConfigurations480p.end());
+                                                 availableStreamConfigurations1080p.begin(),
+                                                 availableStreamConfigurations1080p.end());
 
+            availableStreamConfigurations.insert(availableStreamConfigurations.end(),
+                                                 availableStreamConfigurationsDefault.begin(),
+                                                 availableStreamConfigurationsDefault.end());
         } else if (width == 1280 && height == 720) {
             availableStreamConfigurations.insert(availableStreamConfigurations.end(),
                                                  availableStreamConfigurationsDefault.begin(),
