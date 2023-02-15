@@ -35,6 +35,7 @@
 #include "onevpl-video-decode/MfxDecoder.h"
 #include "CameraSocketCommand.h"
 #include "ConnectionsListener.h"
+#include "CapabilitiesHelper.h"
 #include "VirtualBuffer.h"
 
 namespace android {
@@ -50,6 +51,7 @@ public:
     int getClientId();
     status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet,
                                  size_t config_cmd_packet_size);
+    bool IsValidClientCapInfo();
     std::atomic<socket::CameraSessionState> mCameraSessionState;
     std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
@@ -57,7 +59,10 @@ private:
     bool clientThread();
     bool threadLooper();
 
-    void configureCapabilities();
+    void sendCameraCapabilities();
+    void handleCameraInfo(uint32_t header_size);
+    void sendAck();
+    void handleIncomingFrames(uint32_t header_size);
 
     Mutex mMutex;
     static Mutex sMutex; //Synchronize across threads
@@ -66,9 +71,11 @@ private:
     int mClientFd = -1;
     int mNumOfCamerasRequested;  // Number of cameras requested to support by client.
     bool mIsConfigurationDone = false;
+    bool mValidClientCapInfo = false;
 
     std::shared_ptr<ConnectionsListener> mListener;
     std::shared_ptr<MfxDecoder> mVideoDecoder;
+    CapabilitiesHelper mCapabilitiesHelper;
 
     // maximum size of a H264 packet in any aggregation packet is 65535 bytes.
     // Source: https://tools.ietf.org/html/rfc6184#page-13
@@ -77,12 +84,6 @@ private:
 
     std::future<bool> mThread;
 
-    struct ValidateClientCapability {
-        bool validCodecType = false;
-        bool validResolution = false;
-        bool validOrientation = false;
-        bool validCameraFacing = false;
-    };
 };
 }  // namespace android
 

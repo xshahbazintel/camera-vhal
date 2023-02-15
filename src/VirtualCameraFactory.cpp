@@ -125,14 +125,19 @@ VirtualCameraFactory::~VirtualCameraFactory() {
     for (auto it = mVirtualCameras.begin(); it != mVirtualCameras.end(); it++) {
         delete it->second;
         it->second = nullptr;
-        mVirtualCameras.erase(it);
     }
+    mVirtualCameras.clear();
 
     if (mSocketListener) {
         mSocketListener->requestExit();
         mSocketListener->join();
     }
 }
+
+bool VirtualCameraFactory::IsClientCapabilityValid(int clientId) {
+    return mClientThreads[clientId]->IsValidClientCapInfo();
+}
+
 
 /******************************************************************************
  * Camera HAL API handlers.

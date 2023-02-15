@@ -81,6 +81,10 @@ int ClientCommunicator::getClientId() {
     return mClientId;
 }
 
+bool ClientCommunicator::IsValidClientCapInfo() {
+    return mValidClientCapInfo;
+}
+
 status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size) {
     Mutex::Autolock al(mMutex);
     if (mClientFd < 0) {
@@ -94,29 +98,16 @@ status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_pac
     return true;
 }
 
-void ClientCommunicator::configureCapabilities() {
+void ClientCommunicator::sendCameraCapabilities() {
     ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
-
-    mMutex.lock();
-    bool valid_client_cap_info = false;
-    int camera_id, expctd_cam_id;
-    struct ValidateClientCapability val_client_cap[MAX_NUMBER_OF_SUPPORTED_CAMERAS];
-    size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
+    Mutex::Autolock al(mMutex);
     size_t cap_packet_size = sizeof(camera_header_t) + sizeof(camera_capability_t);
-    ssize_t recv_size = 0;
-    mNumOfCamerasRequested = 0;
-    camera_ack_t ack_payload = ACK_CONFIG;
-
     camera_capability_t capability = {};
-
     camera_packet_t *cap_packet = NULL;
-    camera_packet_t *ack_packet = NULL;
-    camera_header_t header = {};
-
     cap_packet = (camera_packet_t *)malloc(cap_packet_size);
     if (cap_packet == NULL) {
         ALOGE("%s(%d): cap camera_packet_t allocation failed: %d ", __FUNCTION__, mClientId, __LINE__);
-        goto out;
+        return;
     }
 
     cap_packet->header.type = CAPABILITY;
@@ -129,42 +120,26 @@ void ClientCommunicator::configureCapabilities() {
     if (send(mClientFd, cap_packet, cap_packet_size, 0) < 0) {
         ALOGE("%s(%d): Failed to send camera capabilities, err: %s ", __FUNCTION__, mClientId,
               strerror(errno));
-        goto out;
-    }
-    ALOGI("%s(%d): Sent CAPABILITY packet to client", __FUNCTION__, mClientId);
+    } else
+        ALOGI("%s(%d): Sent CAPABILITY packet to client", __FUNCTION__, mClientId);
+    free(cap_packet);
+    return;
+}
 
-    if ((recv_size = recv(mClientFd, &header, sizeof(camera_header_t), MSG_WAITALL)) < 0) {
-        ALOGE("%s(%d): Failed to receive header, err: %s ", __FUNCTION__, mClientId, strerror(errno));
-        goto out;
-    }
+void ClientCommunicator::handleCameraInfo(uint32_t header_size) {
+    ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
 
-    if (header.type != CAMERA_INFO) {
-        ALOGE("%s(%d): invalid camera_packet_type: %s", __FUNCTION__, mClientId,
-              camera_type_to_str(header.type));
-        goto out;
-    }
-
-    if (header.size == 0) {
-        ALOGI("%s(%d): No camera device to support", __FUNCTION__, mClientId);
-        valid_client_cap_info = true;
-        goto send_ack;
-    } else if (header.size < sizeof(camera_info_t)) {
-        ALOGE("%s(%d): Invalid camera info, payload size received, size = %u",
-              __FUNCTION__, mClientId, header.size);
-        valid_client_cap_info = false;
-        goto send_ack;
-    } else {
-        // Get the number of cameras requested to support from client.
-        mNumOfCamerasRequested = (header.size) / sizeof(camera_info_t);
-    }
-
+    Mutex::Autolock al(mMutex);
+    int camera_id, expctd_cam_id;
+    bool IsValidClientCapInfo = true;
+    ssize_t recv_size = 0;
     camera_info_t camera_info[mNumOfCamerasRequested];
     memset(camera_info, 0, sizeof(camera_info));
 
     if ((recv_size = recv(mClientFd, camera_info,
-                          header.size, MSG_WAITALL)) < 0) {
+                          header_size, MSG_WAITALL)) < 0) {
         ALOGE("%s(%d): Failed to receive camera info, err: %s ", __FUNCTION__, mClientId, strerror(errno));
-        goto out;
+        return;
     }
 
     ALOGI("%s(%d): Received CAMERA_INFO packet from client with recv_size: %zd ", __FUNCTION__, mClientId,
@@ -179,8 +154,7 @@ void ClientCommunicator::configureCapabilities() {
               __FUNCTION__, mClientId);
         mNumOfCamerasRequested = MAX_NUMBER_OF_SUPPORTED_CAMERAS;
     }
-
-    // validate capability info received from the client.
+     // validate capability info received from the client.
     for (int i = 0; i < mNumOfCamerasRequested; i++) {
         expctd_cam_id = i;
         if (expctd_cam_id == (int)camera_info[i].cameraId)
@@ -191,67 +165,7 @@ void ClientCommunicator::configureCapabilities() {
                   "expected Id %d",
                   __FUNCTION__, mClientId, camera_info[i].cameraId, expctd_cam_id);
 
-        switch (camera_info[i].codec_type) {
-            case uint32_t(VideoCodecType::kH264):
-            case uint32_t(VideoCodecType::kH265):
-            case  uint32_t(VideoCodecType::kAV1):
-                val_client_cap[i].validCodecType = true;
-                break;
-            default:
-                val_client_cap[i].validCodecType = false;
-                break;
-        }
-
-        switch (camera_info[i].resolution) {
-            case uint32_t(FrameResolution::k480p):
-            case uint32_t(FrameResolution::k720p):
-            case uint32_t(FrameResolution::k1080p):
-                val_client_cap[i].validResolution = true;
-                break;
-            default:
-                val_client_cap[i].validResolution = false;
-                break;
-        }
-
-        switch (camera_info[i].sensorOrientation) {
-            case uint32_t(SensorOrientation::ORIENTATION_0):
-            case uint32_t(SensorOrientation::ORIENTATION_90):
-            case uint32_t(SensorOrientation::ORIENTATION_180):
-            case uint32_t(SensorOrientation::ORIENTATION_270):
-                val_client_cap[i].validOrientation = true;
-                break;
-            default:
-                val_client_cap[i].validOrientation = false;
-                break;
-        }
-
-        switch (camera_info[i].facing) {
-            case uint32_t(CameraFacing::BACK_FACING):
-            case uint32_t(CameraFacing::FRONT_FACING):
-                val_client_cap[i].validCameraFacing = true;
-                break;
-            default:
-                val_client_cap[i].validCameraFacing = false;
-                break;
-        }
     }
-
-    // Check whether recceived any invalid capability info or not.
-    // ACK packet to client would be updated based on this verification.
-    for (int i = 0; i < mNumOfCamerasRequested; i++) {
-        if (!val_client_cap[i].validCodecType || !val_client_cap[i].validResolution ||
-            !val_client_cap[i].validOrientation || !val_client_cap[i].validCameraFacing) {
-            valid_client_cap_info = false;
-            ALOGE("%s(%d): capability info received from client is not completely correct and expected",
-                  __FUNCTION__, mClientId);
-            break;
-        } else {
-            ALOGVV("%s(%d): capability info received from client is correct and expected",
-                   __FUNCTION__, mClientId);
-            valid_client_cap_info = true;
-        }
-    }
-
     // Updating metadata for each camera seperately with its capability info received.
     for (int i = 0; i < mNumOfCamerasRequested; i++) {
         camera_id = i;
@@ -261,24 +175,26 @@ void ClientCommunicator::configureCapabilities() {
               resolution_to_str(camera_info[i].resolution), camera_info[i].sensorOrientation,
               camera_info[i].facing, camera_id);
 
-        if (!val_client_cap[i].validResolution) {
+        if (!mCapabilitiesHelper.IsResolutionValid(camera_info[i].resolution)) {
             // Set default resolution if receive invalid capability info from client.
             // Default resolution would be 480p.
             camera_info[i].resolution = (uint32_t)FrameResolution::k480p;
             ALOGE("%s(%d): Not received valid resolution, "
                   "hence selected 480p as default",
                   __FUNCTION__, mClientId);
+            IsValidClientCapInfo = false;
         }
 
-        if (!val_client_cap[i].validCodecType) {
+        if (!mCapabilitiesHelper.IsCodecTypeValid(camera_info[i].codec_type)) {
             // Set default codec type if receive invalid capability info from client.
             // Default codec type would be H264.
             camera_info[i].codec_type = (uint32_t)VideoCodecType::kH264;
             ALOGE("%s(%d): Not received valid codec type, hence selected H264 as default",
                   __FUNCTION__, mClientId);
+            IsValidClientCapInfo = false;
         }
 
-        if (!val_client_cap[i].validOrientation) {
+        if (!mCapabilitiesHelper.IsSensorOrientationValid(camera_info[i].sensorOrientation)) {
             // Set default camera sensor orientation if received invalid orientation data from
             // client. Default sensor orientation would be zero deg and consider as landscape
             // display.
@@ -286,9 +202,10 @@ void ClientCommunicator::configureCapabilities() {
             ALOGE("%s(%d): Not received valid sensor orientation, "
                   "hence selected ORIENTATION_0 as default",
                   __FUNCTION__, mClientId);
+            IsValidClientCapInfo = false;
         }
 
-        if (!val_client_cap[i].validCameraFacing) {
+        if (!mCapabilitiesHelper.IsCameraFacingValid(camera_info[i].facing)) {
             // Set default camera facing info if received invalid facing info from client.
             // Default would be back for camera Id '0' and front for camera Id '1'.
             if (camera_id == 1)
@@ -298,6 +215,7 @@ void ClientCommunicator::configureCapabilities() {
             ALOGE("%s(%d): Not received valid camera facing info, "
                   "hence selected default",
                   __FUNCTION__, mClientId);
+            IsValidClientCapInfo = false;
         }
 
         // Wait till complete the metadata update for a camera.
@@ -307,18 +225,30 @@ void ClientCommunicator::configureCapabilities() {
             // session is active
             if ((mCameraSessionState != CameraSessionState::kCameraOpened)
                   && (mCameraSessionState != CameraSessionState::kDecodingStarted)) {
-                gVirtualCameraFactory.createVirtualRemoteCamera(mVideoDecoder, mClientId, camera_info[i]);
+                gVirtualCameraFactory.createVirtualRemoteCamera(mVideoDecoder, mClientId,
+                    camera_info[i]);
+	    } else {
+                ALOGE("%s(%d): Camera is already in opened or decoding state,"
+                      "avoiding adding entry for other camera", __FUNCTION__, mClientId);
             }
         }
+        mValidClientCapInfo = IsValidClientCapInfo;
     }
+}
 
-send_ack:
+
+void ClientCommunicator::sendAck() {
+    ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
+    Mutex::Autolock al(mMutex);
+    size_t ack_packet_size = sizeof(camera_header_t) + sizeof(camera_ack_t);
+    camera_ack_t ack_payload = ACK_CONFIG;
+    camera_packet_t *ack_packet = NULL;
     ack_packet = (camera_packet_t *)malloc(ack_packet_size);
     if (ack_packet == NULL) {
         ALOGE("%s(%d): ack camera_packet_t allocation failed: %d ", __FUNCTION__, mClientId, __LINE__);
-        goto out;
+        return;
     }
-    ack_payload = (valid_client_cap_info) ? ACK_CONFIG : NACK_CONFIG;
+    ack_payload = (mValidClientCapInfo) ? ACK_CONFIG : NACK_CONFIG;
 
     ack_packet->header.type = ACK;
     ack_packet->header.size = sizeof(camera_ack_t);
@@ -327,24 +257,21 @@ send_ack:
     if (send(mClientFd, ack_packet, ack_packet_size, 0) < 0) {
         ALOGE("%s(%d): Failed to send camera capabilities, err: %s ", __FUNCTION__, mClientId,
               strerror(errno));
-        goto out;
+    } else {
+        ALOGI("%s(%d): Sent ACK packet to client with ack_size: %zu ", __FUNCTION__, mClientId,
+              ack_packet_size);
+        ALOGI("%s(%d): Capability negotiation and metadata update for %d camera(s) completed successfully..",
+              __FUNCTION__, mClientId, mNumOfCamerasRequested);
+        mIsConfigurationDone = true;
     }
-    ALOGI("%s(%d): Sent ACK packet to client with ack_size: %zu ", __FUNCTION__, mClientId,
-          ack_packet_size);
-    ALOGI("%s(%d): Capability negotiation and metadata update for %d camera(s) completed successfully..",
-          __FUNCTION__, mClientId, mNumOfCamerasRequested);
-    mIsConfigurationDone = true;
-out:
     free(ack_packet);
-    free(cap_packet);
-    mMutex.unlock();
     ALOGVV("%s(%d): Exit", __FUNCTION__, mClientId);
 }
 
 bool ClientCommunicator::threadLooper() {
     while (mRunning) {
         if (!clientThread()) {
-            ALOGI("%s(%d) : clientThread returned flase, Exit", __FUNCTION__, mClientId);
+            ALOGI("%s(%d) : clientThread returned false, Exit", __FUNCTION__, mClientId);
             return false;
         } else {
             ALOGI("%s(%d) : Re-spawn clientThread", __FUNCTION__, mClientId);
@@ -406,95 +333,57 @@ bool ClientCommunicator::clientThread() {
                                  MSG_WAITALL)) > 0) {
                     ALOGVV("%s(%d): Received Header %zd bytes. Payload size: %u",
                            __FUNCTION__, mClientId, size, header.size);
-                    if (header.type == REQUEST_CAPABILITY && header.size == 0) {
-                        ALOGI("%s(%d): Configure capability", __FUNCTION__, mClientId);
-                        // Dynamic client configuration is not supported when camera
-                        // session is active
-                        if ((mCameraSessionState != CameraSessionState::kCameraOpened)
-                              && (mCameraSessionState != CameraSessionState::kDecodingStarted)) {
-                            gVirtualCameraFactory.clearCameraInfo(mClientId);
-                        }
-                        configureCapabilities();
-                        continue;
-                    }
-                    if (!mIsConfigurationDone || header.type != CAMERA_DATA) {
-                        ALOGE("%s(%d): invalid camera_packet_type: %s", __FUNCTION__, mClientId,
-                              camera_type_to_str(header.type));
-                        continue;
-                    }
-
-                    if (header.size > mSocketBuffer.size()) {
-                        // maximum size of a H264 packet in any aggregation packet is 65535
-                        // bytes. Source: https://tools.ietf.org/html/rfc6184#page-13
-                        ALOGE(
-                            "%s(%d) Fatal: Unusual encoded packet size detected: %u! Max is %zu, "
-                            "...",
-                            __func__, mClientId, header.size, mSocketBuffer.size());
-                        continue;
-                    }
-
-                    // recv frame
-                    if ((size = recv(mClientFd, mSocketBuffer.data(), header.size,
-                                     MSG_WAITALL)) > 0) {
-                        if (size < header.size) {
-                            ALOGW("%s(%d) : Incomplete data read %zd/%u bytes", __func__, mClientId,
-                                  size, header.size);
-                            size_t bytes_read = size;
-                            while (bytes_read < header.size) {
-                                if ((size = recv(mClientFd, mSocketBuffer.data() + bytes_read,
-                                                 header.size - bytes_read, MSG_WAITALL)) > 0) {
-                                    bytes_read += size;
-                                    ALOGI("%s(%d) : Read-%zd after Incomplete data, remaining-%lu",
-                                          __func__, mClientId, size, header.size - bytes_read);
-                                }
-                            }
-                            size = header.size;
-                        }
-
-                        ALOGV("%s : Received encoded frame from client", __func__);
-                        mSocketBufferSize = header.size;
-
-                        ALOGVV("%s(%d): Camera session state: %s", __func__, mClientId,
-                               kCameraSessionStateNames.at(mCameraSessionState).c_str());
-                        switch (mCameraSessionState) {
-                            case CameraSessionState::kCameraOpened:
-                                mCameraSessionState = CameraSessionState::kDecodingStarted;
-                                ALOGVV("%s(%d): Decoding started now.", __func__, mClientId);
-                            case CameraSessionState::kDecodingStarted: {
-                                if (mCameraBuffer == NULL) break;
-                                mCameraBuffer->clientRevCount++;
-                                ALOGVV("%s(%d): Received Payload #%d %zd/%u bytes", __func__, mClientId,
-                                       mCameraBuffer->clientRevCount, size, header.size);
-
-                                mfxStatus ret = MFX_ERR_NONE;
-                                // Start decoding received frames.
-                                ret = mVideoDecoder->DecodeFrame(mSocketBuffer.data(),
-                                                                 mSocketBufferSize);
-                                if (ret == MFX_ERR_NONE) {
-                                    ALOGV("%s(%d): Decoding success! Now need to get the output",
-                                          __func__, mClientId);
-                                } else {
-                                    ALOGE("%s(%d): Decoding failed. ret = %d", __func__,
-                                          mClientId, ret);
-                                }
-
-                                mSocketBuffer.fill(0);
+		    switch (header.type) {
+                        case REQUEST_CAPABILITY:
+                            if(header.size != 0) {
+                                ALOGE("%s(%d): Invalid header size for REQ_CAP packet",
+                                    __FUNCTION__, mClientId);
                                 break;
                             }
-                            case CameraSessionState::kCameraClosed:
-                                ALOGI("%s(%d): Closing and releasing the decoder", __func__, mClientId);
-                                mCameraSessionState = CameraSessionState::kDecodingStopped;
-                                break;
-                            case CameraSessionState::kDecodingStopped:
-                                ALOGVV("%s(%d): Decoder is already released, hence skip the client input",
-                                       __func__, mClientId);
-                                mSocketBuffer.fill(0);
-                                break;
-                            default:
-                                ALOGE("%s(%d): Invalid Camera session state!", __func__, mClientId);
-                                break;
-                        }
-                    }
+                            // Dynamic client configuration is not supported when camera
+                            // session is active
+                            if ((mCameraSessionState != CameraSessionState::kCameraOpened)
+                                && (mCameraSessionState != CameraSessionState::kDecodingStarted)) {
+                                gVirtualCameraFactory.clearCameraInfo(mClientId);
+                                sendCameraCapabilities();
+			    } else {
+                                ALOGE("%s(%d): Camera is in opened or decoding state,"
+                                      "avoid clearing the cameras", __FUNCTION__, mClientId);
+                            }
+                            break;
+                        case CAMERA_INFO:
+                            mValidClientCapInfo = false;
+                            mNumOfCamerasRequested = 0;
+                            if (header.size == 0) {
+                                ALOGI("%s(%d): No camera device to support", __FUNCTION__, mClientId);
+                            } else if (header.size < sizeof(camera_info_t)) {
+                                ALOGE("%s(%d): Invalid camera info, payload size received, size = %u",
+                                    __FUNCTION__, mClientId, header.size);
+                            } else {
+				mNumOfCamerasRequested = (header.size) / sizeof(camera_info_t);
+                                handleCameraInfo(header.size);
+                            }
+                            sendAck();
+                            break;
+                        case CAMERA_DATA:
+                            if (!mIsConfigurationDone) {
+                                ALOGE("%s(%d): Invalid camera_packet_type: %s, Configuration not completed", __FUNCTION__, mClientId,
+                                      camera_type_to_str(header.type));
+                            } else if (header.size > mSocketBuffer.size()) {
+                                // maximum size of a H264 packet in any aggregation packet is 65535
+                                // bytes. Source: https://tools.ietf.org/html/rfc6184#page-13
+                                ALOGE("%s(%d) Fatal: Unusual encoded packet size detected: %u! Max is %zu, "
+                                      "...",__func__, mClientId, header.size, mSocketBuffer.size());
+                            } else {
+                                handleIncomingFrames(header.size);
+                            }
+                            break;
+                        default:
+                            ALOGE("%s(%d): invalid camera_packet_type: %s", __FUNCTION__, mClientId,
+                                 camera_type_to_str(header.type));
+                            break;
+		    }
+                    continue;
                 }
             } else {
                 ALOGE(
@@ -517,4 +406,68 @@ bool ClientCommunicator::clientThread() {
     return true;
 }
 
+void ClientCommunicator::handleIncomingFrames(uint32_t header_size) {
+    ssize_t size = 0;
+    // recv frame
+    if ((size = recv(mClientFd, mSocketBuffer.data(), header_size,
+          MSG_WAITALL)) > 0) {
+        if (size < header_size) {
+            ALOGW("%s(%d) : Incomplete data read %zd/%u bytes", __func__, mClientId,
+                  size, header_size);
+            size_t bytes_read = size;
+            while (bytes_read < header_size) {
+                if ((size = recv(mClientFd, mSocketBuffer.data() + bytes_read,
+                      header_size - bytes_read, MSG_WAITALL)) > 0) {
+                    bytes_read += size;
+                    ALOGI("%s(%d) : Read-%zd after Incomplete data, remaining-%lu",
+                          __func__, mClientId, size, header_size - bytes_read);
+                }
+            }
+            size = header_size;
+        }
+
+        ALOGV("%s : Received encoded frame from client", __func__);
+        mSocketBufferSize = header_size;
+
+        ALOGVV("%s(%d): Camera session state: %s", __func__, mClientId,
+              kCameraSessionStateNames.at(mCameraSessionState).c_str());
+        switch (mCameraSessionState) {
+            case CameraSessionState::kCameraOpened:
+                mCameraSessionState = CameraSessionState::kDecodingStarted;
+                ALOGVV("%s(%d): Decoding started now.", __func__, mClientId);
+            case CameraSessionState::kDecodingStarted: {
+                if (mCameraBuffer == NULL) break;
+                mCameraBuffer->clientRevCount++;
+                ALOGVV("%s(%d): Received Payload #%d %zd/%u bytes", __func__, mClientId,
+                      mCameraBuffer->clientRevCount, size, header.size);
+
+                mfxStatus ret = MFX_ERR_NONE;
+                // Start decoding received frames.
+                ret = mVideoDecoder->DecodeFrame(mSocketBuffer.data(), mSocketBufferSize);
+                if (ret == MFX_ERR_NONE) {
+                    ALOGV("%s(%d): Decoding success! Now need to get the output",
+                          __func__, mClientId);
+                } else {
+                    ALOGE("%s(%d): Decoding failed. ret = %d", __func__,
+                          mClientId, ret);
+                }
+
+                mSocketBuffer.fill(0);
+                break;
+            }
+            case CameraSessionState::kCameraClosed:
+                ALOGI("%s(%d): Closing and releasing the decoder", __func__, mClientId);
+                mCameraSessionState = CameraSessionState::kDecodingStopped;
+                break;
+            case CameraSessionState::kDecodingStopped:
+                ALOGVV("%s(%d): Decoder is already released, hence skip the client input",
+                      __func__, mClientId);
+                mSocketBuffer.fill(0);
+                break;
+            default:
+                ALOGE("%s(%d): Invalid Camera session state!", __func__, mClientId);
+                break;
+        }
+    }
+}
 }  // namespace android

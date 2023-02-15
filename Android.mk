@@ -18,7 +18,6 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
-
 ##################### Build camera-vhal #######################
 
 LOCAL_MODULE		:= camera.$(TARGET_PRODUCT)
@@ -37,6 +36,7 @@ camera_vhal_src := \
 	src/Exif.cpp \
 	src/Thumbnail.cpp \
 	src/ClientCommunicator.cpp \
+	src/CapabilitiesHelper.cpp \
 	src/ConnectionsListener.cpp \
 	src/CameraSocketCommand.cpp \
 	src/onevpl-video-decode/MfxDecoder.cpp \
@@ -137,4 +137,3 @@ LOCAL_MODULE := camera.$(TARGET_PRODUCT).jpeg
 include $(BUILD_SHARED_LIBRARY)
 
 ######################################################
-

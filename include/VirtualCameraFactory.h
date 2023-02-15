@@ -177,6 +177,10 @@ public:
     bool createVirtualRemoteCamera(std::shared_ptr<MfxDecoder> decoder,
                                    int clientId,
                                    android::socket::camera_info_t cameraInfo);
+    /*
+     * Returns the validity of camera info received from client.
+     */
+    bool IsClientCapabilityValid(int clientId);
 
 private:
     /****************************************************************************
