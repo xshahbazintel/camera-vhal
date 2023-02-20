@@ -97,6 +97,7 @@ status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_pac
 void ClientCommunicator::configureCapabilities() {
     ALOGVV("%s(%d) Enter", __FUNCTION__, mClientId);
 
+    mMutex.lock();
     bool valid_client_cap_info = false;
     int camera_id, expctd_cam_id;
     struct ValidateClientCapability val_client_cap[MAX_NUMBER_OF_SUPPORTED_CAMERAS];
@@ -112,11 +113,10 @@ void ClientCommunicator::configureCapabilities() {
     camera_packet_t *ack_packet = NULL;
     camera_header_t header = {};
 
-    Mutex::Autolock al(mMutex);
     cap_packet = (camera_packet_t *)malloc(cap_packet_size);
     if (cap_packet == NULL) {
         ALOGE("%s(%d): cap camera_packet_t allocation failed: %d ", __FUNCTION__, mClientId, __LINE__);
-        return;
+        goto out;
     }
 
     cap_packet->header.type = CAPABILITY;
@@ -144,9 +144,14 @@ void ClientCommunicator::configureCapabilities() {
         goto out;
     }
 
-    if (header.size < sizeof(camera_info_t)) {
-        ALOGE("%s(%d): No camera device to support, header size received, size = %zu",
-              __FUNCTION__, mClientId, recv_size);
+    if (header.size == 0) {
+        ALOGI("%s(%d): No camera device to support", __FUNCTION__, mClientId);
+        valid_client_cap_info = true;
+        goto send_ack;
+    } else if (header.size < sizeof(camera_info_t)) {
+        ALOGE("%s(%d): Invalid camera info, payload size received, size = %u",
+              __FUNCTION__, mClientId, header.size);
+        valid_client_cap_info = false;
         goto send_ack;
     } else {
         // Get the number of cameras requested to support from client.
@@ -331,6 +336,7 @@ send_ack:
 out:
     free(ack_packet);
     free(cap_packet);
+    mMutex.unlock();
     ALOGVV("%s(%d): Exit", __FUNCTION__, mClientId);
 }
 
