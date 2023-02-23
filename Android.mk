@@ -137,3 +137,4 @@ LOCAL_MODULE := camera.$(TARGET_PRODUCT).jpeg
 include $(BUILD_SHARED_LIBRARY)
 
 ######################################################
+include $(LOCAL_PATH)/Gtest/Android.mk

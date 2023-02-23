@@ -110,7 +110,11 @@ bool VirtualCameraFactory::createSocketListener() {
     ALOGV("%s: E", __FUNCTION__);
 
     char id[PROPERTY_VALUE_MAX] = {0};
-    if (property_get("ro.boot.container.id", id, "") > 0) {
+    // This property is used by gtest, set this before running gtest
+    if (property_get("ro.boot.container.testid", id, "") > 0) {
+        mSocketListener = std::make_shared<ConnectionsListener>(id);
+        mSocketListener->run("ConnectionsListener");
+    } else if (property_get("ro.boot.container.id", id, "") > 0) {
         mSocketListener = std::make_shared<ConnectionsListener>(id);
         mSocketListener->run("ConnectionsListener");
     } else
