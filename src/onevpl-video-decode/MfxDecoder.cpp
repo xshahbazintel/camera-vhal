@@ -20,13 +20,14 @@
 //#define LOG_NDEBUG 0
 
 #include "onevpl-video-decode/MfxDecoder.h"
+#include "CameraSocketCommand.h"
 #include <thread>
 
 MfxDecoder::MfxDecoder() {
     ALOGV("%s", __func__);
 
     mDecImplementation = MFX_IMPL_AUTO_ANY | MFX_IMPL_VIA_ANY;
-    mCodecType = DECODER_H264;
+    mCodecType = uint32_t(android::socket::VideoCodecType::kH264);
     mDecodeMemType = SYSTEM_MEMORY;
     mOutFrameSurface = nullptr;
     mOutSurfaceNum = 0;
@@ -80,10 +81,12 @@ mfxStatus MfxDecoder::InitDecoder() {
     mfxStatus mfx_sts = MFX_ERR_NONE;
 
     memset(&mMfxVideoDecParams, 0, sizeof(mMfxVideoDecParams));
-    if (mCodecType == DECODER_H264) {
+    if (mCodecType ==  uint32_t(android::socket::VideoCodecType::kH264)) {
         mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_AVC;
-    } else if (mCodecType == DECODER_H265) {
+    } else if (mCodecType ==  uint32_t(android::socket::VideoCodecType::kH265)) {
         mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_HEVC;
+    } else if (mCodecType ==  uint32_t(android::socket::VideoCodecType::kAV1)) {
+        mMfxVideoDecParams.mfx.CodecId = MFX_CODEC_AV1;
     } else {
         ALOGE("%s, CodecType %d is Invalid", __func__, mCodecType);
 	return MFX_ERR_INCOMPATIBLE_VIDEO_PARAM;

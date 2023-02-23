@@ -27,7 +27,7 @@ namespace android {
 
 namespace socket {
 
-enum class VideoCodecType { kH264 = 1, kH265 = 2, kAll = 3 };
+enum class VideoCodecType { kH264 = 1, kH265 = 2, kI420 = 4, kAV1 = 8, kAll = 15 };
 enum class FrameResolution { k480p = 1, k720p = 2, k1080p = 4, kAll = 7 };
 
 enum class SensorOrientation {

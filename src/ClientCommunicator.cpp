@@ -194,6 +194,7 @@ void ClientCommunicator::configureCapabilities() {
         switch (camera_info[i].codec_type) {
             case uint32_t(VideoCodecType::kH264):
             case uint32_t(VideoCodecType::kH265):
+            case  uint32_t(VideoCodecType::kAV1):
                 val_client_cap[i].validCodecType = true;
                 break;
             default:
