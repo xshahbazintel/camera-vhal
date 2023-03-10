@@ -21,25 +21,23 @@
 #define CONNECTIONS_LISTENER_H
 
 #include <utils/Mutex.h>
-#include <utils/Thread.h>
+#include <thread>
 #include <future>
 #include <vector>
 
 #define MAX_CONCURRENT_USER_NUM  8
-
 namespace android {
 
-class ConnectionsListener : public Thread {
+class ConnectionsListener {
 public:
     ConnectionsListener(std::string suffix);
-    virtual void requestExit();
-    virtual status_t requestExitAndWait();
+    void requestJoin();
+    void requestExit();
     int getClientFd(int clientId);
     void clearClientFd(int clientId);
 
 private:
-    virtual status_t readyToRun();
-    virtual bool threadLoop() override;
+    bool socketListenerThreadProc();
     Mutex mMutex;
     bool mRunning;
     int mSocketServerFd = -1;
@@ -47,6 +45,7 @@ private:
     uint32_t mNumConcurrentUsers = 0;
     std::vector<std::promise<int>> mClientFdPromises;
     std::vector<bool> mClientsConnected;
+    std::unique_ptr<std::thread> mSocketListenerThread;
 };
 }  // namespace android
 

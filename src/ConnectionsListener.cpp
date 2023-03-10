@@ -22,7 +22,11 @@
 #include <log/log.h>
 
 #include <sys/socket.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/poll.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <cutils/properties.h>
 #include "CameraSocketCommand.h"
@@ -30,8 +34,7 @@
 namespace android {
 
 ConnectionsListener::ConnectionsListener(std::string suffix)
-    : Thread(/*canCallJava*/ false),
-      mRunning{true},
+    : mRunning{true},
       mSocketServerFd{-1} {
     std::string sock_path = "/ipc/camera-socket" + suffix;
     char *k8s_env_value = getenv("K8S_ENV");
@@ -56,11 +59,12 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
     }
     mClientFdPromises.resize(num_clients);
     mClientsConnected.resize(num_clients, false);
+    mSocketListenerThread = std::make_unique<std::thread>(&ConnectionsListener::socketListenerThreadProc,this);
 }
 
-status_t ConnectionsListener::requestExitAndWait() {
-    ALOGE("%s: Not implemented. Use requestExit + join instead", __FUNCTION__);
-    return INVALID_OPERATION;
+void ConnectionsListener::requestJoin () {
+    if(mSocketListenerThread->joinable())
+        mSocketListenerThread->join();
 }
 
 int ConnectionsListener::getClientFd(int clientId) {
@@ -74,20 +78,10 @@ void ConnectionsListener::clearClientFd(int clientId) {
 
 void ConnectionsListener::requestExit() {
     Mutex::Autolock al(mMutex);
-
-    ALOGV("%s: Requesting thread exit", __FUNCTION__);
     mRunning = false;
-    ALOGV("%s: Request exit complete.", __FUNCTION__);
 }
 
-status_t ConnectionsListener::readyToRun() {
-    Mutex::Autolock al(mMutex);
-
-    return OK;
-}
-
-
-bool ConnectionsListener::threadLoop() {
+bool ConnectionsListener::socketListenerThreadProc() {
     mSocketServerFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (mSocketServerFd < 0) {
         ALOGE("%s:%d Fail to construct camera socket with error: %s", __FUNCTION__, __LINE__,
@@ -95,6 +89,7 @@ bool ConnectionsListener::threadLoop() {
         return false;
     }
 
+    struct pollfd fd;
     struct sockaddr_un addr_un;
     memset(&addr_un, 0, sizeof(addr_un));
     addr_un.sun_family = AF_UNIX;
@@ -135,58 +130,73 @@ bool ConnectionsListener::threadLoop() {
         ALOGE("%s Failed to listen on %s", __FUNCTION__, mSocketPath.c_str());
         return false;
     }
+    fd.fd = mSocketServerFd;
+    fd.events = POLLIN;
 
     while (mRunning) {
-        ALOGI(" %s: Wait for camera client to connect. . .", __FUNCTION__);
-
-        socklen_t alen = sizeof(struct sockaddr_un);
-
-        int new_client_fd = ::accept(mSocketServerFd, (struct sockaddr *)&addr_un, &alen);
-        ALOGI(" %s: Accepted client: [%d]", __FUNCTION__, new_client_fd);
-        if (new_client_fd < 0) {
-            ALOGE(" %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
+        uint32_t client_id = 0;
+        if (!mClientsConnected[client_id])
+            ALOGI(" %s: Wait for camera client to connect. . .", __FUNCTION__);
+        ret = poll(&fd, 1, 3000);
+        if (ret == 0)
+        {
+            ALOGV("%s: Poll() timedout", __FUNCTION__);
             continue;
         }
-        uint32_t client_id = 0;
-        if (mNumConcurrentUsers > 0) {
-            size_t packet_size = sizeof(android::socket::camera_header_t) + sizeof(client_id);
-            bool status = true;
-            android::socket::camera_packet_t * user_id_packet = (android::socket::camera_packet_t *)malloc(packet_size);
-            if (user_id_packet == NULL) {
-                ALOGE("%s: user_id_packet allocation failed: %d ", __FUNCTION__, __LINE__);
+        else if (ret < 0) {
+            ALOGE("%s: Poll() failed with err = %d", __FUNCTION__,ret);
+            continue;
+        }
+        else if (fd.revents & POLLIN) {
+            socklen_t alen = sizeof(struct sockaddr_un);
+
+            int new_client_fd = ::accept(mSocketServerFd, (struct sockaddr *)&addr_un, &alen);
+            if (new_client_fd < 0) {
+                ALOGE(" %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
                 continue;
+            } else {
+                ALOGI(" %s: Accepted client: [%d]", __FUNCTION__, new_client_fd);
             }
-            if (recv(new_client_fd, (char *)user_id_packet, packet_size, MSG_WAITALL) < 0) {
-                ALOGE("%s: Failed to receive user_id header, err: %s ", __FUNCTION__, strerror(errno));
-                status = false;
-            }
-            if (user_id_packet->header.type != android::socket::CAMERA_USER_ID) {
-                ALOGE("%s: Invalid packet type %d\n", __FUNCTION__, user_id_packet->header.type);
-                status = false;
-            }
-            if (user_id_packet->header.size != sizeof(client_id)) {
-                ALOGE("%s: Invalid packet size %u\n", __FUNCTION__, user_id_packet->header.size);
-                status = false;
-            }
-            if (!status) {
+            if (mNumConcurrentUsers > 0) {
+                size_t packet_size = sizeof(android::socket::camera_header_t) + sizeof(client_id);
+                bool status = true;
+                android::socket::camera_packet_t * user_id_packet = (android::socket::camera_packet_t *)malloc(packet_size);
+                if (user_id_packet == NULL) {
+                    ALOGE("%s: user_id_packet allocation failed: %d ", __FUNCTION__, __LINE__);
+                    continue;
+                }
+                if (recv(new_client_fd, (char *)user_id_packet, packet_size, MSG_WAITALL) < 0) {
+                    ALOGE("%s: Failed to receive user_id header, err: %s ", __FUNCTION__, strerror(errno));
+                    status = false;
+                }
+                if (user_id_packet->header.type != android::socket::CAMERA_USER_ID) {
+                    ALOGE("%s: Invalid packet type %d\n", __FUNCTION__, user_id_packet->header.type);
+                    status = false;
+                }
+                if (user_id_packet->header.size != sizeof(client_id)) {
+                    ALOGE("%s: Invalid packet size %u\n", __FUNCTION__, user_id_packet->header.size);
+                    status = false;
+                }
+                if (!status) {
+                    free(user_id_packet);
+                    continue;
+                }
+                memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
                 free(user_id_packet);
-                continue;
+                if (client_id < 0 || client_id >= mNumConcurrentUsers) {
+                    ALOGE("%s: client_id = %u is not valid", __FUNCTION__, client_id);
+                    continue;
+                }
             }
-            memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
-            free(user_id_packet);
-            if (client_id < 0 || client_id >= mNumConcurrentUsers) {
-                ALOGE("%s: client_id = %u is not valid", __FUNCTION__, client_id);
-                continue;
+            if (mClientsConnected[client_id]) {
+                ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);
+            } else {
+                mClientFdPromises[client_id].set_value(new_client_fd);
+                ALOGI(" %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
+                mClientsConnected[client_id] = true;
             }
-        }
-        if (mClientsConnected[client_id]) {
-            ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);
-        } else {
-            mClientFdPromises[client_id].set_value(new_client_fd);
-            ALOGI(" %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);
-            mClientsConnected[client_id] = true;
-        }
-    }
+        } // end of poll function
+    } // end of while
     close(mSocketServerFd);
     mSocketServerFd = -1;
     return true;
