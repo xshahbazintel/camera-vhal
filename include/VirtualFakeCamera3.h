@@ -36,6 +36,7 @@
 #include <utils/Mutex.h>
 #include <memory>
 #include <atomic>
+#include <random>
 #include "ClientCommunicator.h"
 #include "CameraSocketCommand.h"
 

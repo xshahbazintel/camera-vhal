@@ -71,7 +71,7 @@ status_t JpegCompressor::start(Buffers *buffers, JpegListener *listener, CameraM
     if (res != OK) {
         ALOGE("%s: Unable to start up compression thread: %s (%d)", __FUNCTION__, strerror(-res),
               res);
-        delete mBuffers;
+        mBuffers = nullptr;
     }
     return res;
 }

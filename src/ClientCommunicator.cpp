@@ -366,6 +366,9 @@ bool ClientCommunicator::clientThread() {
                             } else if (header.size < sizeof(camera_info_t)) {
                                 ALOGE("%s(%d): Invalid camera info, payload size received, size = %u",
                                     __FUNCTION__, mClientId, header.size);
+                            } else if(header.size > (MAX_CAM*sizeof(camera_info_t))) {
+                                ALOGE("%s(%d): header size exceeds the max limit, size = %u",
+                                    __FUNCTION__, mClientId, header.size);
                             } else {
 				mNumOfCamerasRequested = (header.size) / sizeof(camera_info_t);
                                 handleCameraInfo(header.size);
@@ -374,13 +377,15 @@ bool ClientCommunicator::clientThread() {
                             break;
                         case CAMERA_DATA:
                             if (!mIsConfigurationDone) {
-                                ALOGE("%s(%d): Invalid camera_packet_type: %s, Configuration not completed", __FUNCTION__, mClientId,
+                                ALOGE("%s(%d): Invalid camera_packet_type: %s,"
+                                      "Configuration not completed", __FUNCTION__, mClientId,
                                       camera_type_to_str(header.type));
                             } else if (header.size > mSocketBuffer.size()) {
                                 // maximum size of a H264 packet in any aggregation packet is 65535
                                 // bytes. Source: https://tools.ietf.org/html/rfc6184#page-13
-                                ALOGE("%s(%d) Fatal: Unusual encoded packet size detected: %u! Max is %zu, "
-                                      "...",__func__, mClientId, header.size, mSocketBuffer.size());
+                                ALOGE("%s(%d) Fatal: Unusual encoded packet size detected: %u!"
+                                      "Max is %zu", __func__, mClientId, header.size,
+                                      mSocketBuffer.size());
                             } else {
                                 handleIncomingFrames(header.size);
                             }
@@ -442,6 +447,7 @@ void ClientCommunicator::handleIncomingFrames(uint32_t header_size) {
             case CameraSessionState::kCameraOpened:
                 mCameraSessionState = CameraSessionState::kDecodingStarted;
                 ALOGVV("%s(%d): Decoding started now.", __func__, mClientId);
+                [[fallthrough]];
             case CameraSessionState::kDecodingStarted: {
                 if (mCameraBuffer == NULL) break;
                 mCameraBuffer->clientRevCount++;

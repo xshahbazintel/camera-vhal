@@ -29,6 +29,7 @@
 #include <sys/time.h>
 #include <sys/un.h>
 #include <chrono>
+#include <algorithm>
 #include <cutils/properties.h>
 #include "CameraSocketCommand.h"
 
@@ -97,22 +98,20 @@ bool ConnectionsListener::socketListenerThreadProc() {
 
     struct pollfd fd;
     struct sockaddr_un addr_un;
+    int new_client_fd = -1;
     memset(&addr_un, 0, sizeof(addr_un));
     addr_un.sun_family = AF_UNIX;
-    strncpy(&addr_un.sun_path[0], mSocketPath.c_str(), strlen(mSocketPath.c_str()));
+    strncpy(&addr_un.sun_path[0], mSocketPath.c_str(),
+          std::min(strlen(mSocketPath.c_str()),sizeof(addr_un.sun_path)));
 
     int ret = 0;
-    if ((access(mSocketPath.c_str(), F_OK)) != -1) {
-        ALOGI(" %s camera socket server file is %s", __FUNCTION__, mSocketPath.c_str());
-        ret = unlink(mSocketPath.c_str());
-        if (ret < 0) {
-            ALOGE(" %s Failed to unlink %s address %d, %s", __FUNCTION__,
-                  mSocketPath.c_str(), ret, strerror(errno));
-        }
-    } else {
-        ALOGI(" %s camera socket server file %s will created. ", __FUNCTION__,
-              mSocketPath.c_str());
-    }
+    ret = unlink(mSocketPath.c_str());
+    if (ret < 0) {
+        ALOGE(" %s Failed to unlink %s address %d, %s", __FUNCTION__,
+              mSocketPath.c_str(), ret, strerror(errno));
+     }
+     ALOGI(" %s camera socket server file %s is created. ", __FUNCTION__,
+           mSocketPath.c_str());
 
     ret = ::bind(mSocketServerFd, (struct sockaddr *)&addr_un,
                  sizeof(sa_family_t) + strlen(mSocketPath.c_str()) + 1);
@@ -127,8 +126,13 @@ bool ConnectionsListener::socketListenerThreadProc() {
     if (fstat(mSocketServerFd, &st) == 0) {
         mod |= st.st_mode;
     }
-    chmod(mSocketPath.c_str(), mod);
-    stat(mSocketPath.c_str(), &st);
+
+    ret = chmod(mSocketPath.c_str(), mod);
+    if(ret < 0)
+        return false;
+    ret = stat(mSocketPath.c_str(), &st);
+    if(ret < 0)
+        return false;
 
     ret = listen(mSocketServerFd, 5);
     if (ret < 0) {
@@ -155,7 +159,7 @@ bool ConnectionsListener::socketListenerThreadProc() {
         else if (fd.revents & POLLIN) {
             socklen_t alen = sizeof(struct sockaddr_un);
 
-            int new_client_fd = ::accept(mSocketServerFd, (struct sockaddr *)&addr_un, &alen);
+            new_client_fd = ::accept(mSocketServerFd, (struct sockaddr *)&addr_un, &alen);
             if (new_client_fd < 0) {
                 ALOGE(" %s: Fail to accept client. Error: [%s]", __FUNCTION__, strerror(errno));
                 continue;
@@ -168,6 +172,7 @@ bool ConnectionsListener::socketListenerThreadProc() {
                 android::socket::camera_packet_t * user_id_packet = (android::socket::camera_packet_t *)malloc(packet_size);
                 if (user_id_packet == NULL) {
                     ALOGE("%s: user_id_packet allocation failed: %d ", __FUNCTION__, __LINE__);
+                    close(new_client_fd);
                     continue;
                 }
                 if (recv(new_client_fd, (char *)user_id_packet, packet_size, MSG_WAITALL) < 0) {
@@ -184,17 +189,20 @@ bool ConnectionsListener::socketListenerThreadProc() {
                 }
                 if (!status) {
                     free(user_id_packet);
+                    close(new_client_fd);
                     continue;
                 }
                 memcpy(&client_id, user_id_packet->payload, sizeof(client_id));
                 free(user_id_packet);
-                if (client_id < 0 || client_id >= mNumConcurrentUsers) {
+                if (client_id >= mNumConcurrentUsers) {
                     ALOGE("%s: client_id = %u is not valid", __FUNCTION__, client_id);
+                    close(new_client_fd);
                     continue;
                 }
             }
             if (mClientsConnected[client_id]) {
                 ALOGE(" %s: IGNORING clientFd[%d] for already connected Client[%d]", __FUNCTION__, new_client_fd, client_id);
+                close(new_client_fd);
             } else {
                 mClientFdPromises[client_id].set_value(new_client_fd);
                 ALOGI(" %s: Assigned clientFd[%d] to Client[%d]", __FUNCTION__, new_client_fd, client_id);

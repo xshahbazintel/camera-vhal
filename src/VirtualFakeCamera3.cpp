@@ -2139,6 +2139,9 @@ status_t VirtualFakeCamera3::process3A(CameraMetadata &settings) {
 
 status_t VirtualFakeCamera3::doFakeAE(CameraMetadata &settings) {
     camera_metadata_entry e;
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_real_distribution<double> dist {1.0, 100000.0};
 
     e = settings.find(ANDROID_CONTROL_AE_MODE);
     if (e.count == 0 && hasCapability(BACKWARD_COMPATIBLE)) {
@@ -2217,7 +2220,7 @@ status_t VirtualFakeCamera3::doFakeAE(CameraMetadata &settings) {
                     mAeTargetExposureTime =
                         mFacePriority ? kFacePriorityExposureTime : kNormalExposureTime;
                     float exposureStep =
-                        ((double)rand() / RAND_MAX) * (kExposureWanderMax - kExposureWanderMin) +
+                        (dist(mt) / RAND_MAX) * (kExposureWanderMax - kExposureWanderMin) +
                         kExposureWanderMin;
                     mAeTargetExposureTime *= std::pow(2, exposureStep);
                     mAeState = ANDROID_CONTROL_AE_STATE_SEARCHING;
@@ -2251,6 +2254,9 @@ status_t VirtualFakeCamera3::doFakeAE(CameraMetadata &settings) {
 
 status_t VirtualFakeCamera3::doFakeAF(CameraMetadata &settings) {
     camera_metadata_entry e;
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_int_distribution<int> dist {1,};
 
     e = settings.find(ANDROID_CONTROL_AF_MODE);
     if (e.count == 0 && hasCapability(BACKWARD_COMPATIBLE)) {
@@ -2360,7 +2366,7 @@ status_t VirtualFakeCamera3::doFakeAF(CameraMetadata &settings) {
              */
             if (afTriggerStart) {
                 // Randomly transition to focused or not focused
-                if (rand() % 3) {
+                if (dist(mt) % 3) {
                     mAfState = ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED;
                 } else {
                     mAfState = ANDROID_CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
@@ -2373,7 +2379,7 @@ status_t VirtualFakeCamera3::doFakeAF(CameraMetadata &settings) {
              */
             else if (!afTriggerCancel) {
                 // Randomly transition to passive focus
-                if (rand() % 3 == 0) {
+                if (dist(mt) % 3 == 0) {
                     mAfState = ANDROID_CONTROL_AF_STATE_PASSIVE_FOCUSED;
                 }
             }
@@ -2382,7 +2388,7 @@ status_t VirtualFakeCamera3::doFakeAF(CameraMetadata &settings) {
         case ANDROID_CONTROL_AF_STATE_PASSIVE_FOCUSED:
             if (afTriggerStart) {
                 // Randomly transition to focused or not focused
-                if (rand() % 3) {
+                if (dist(mt) % 3) {
                     mAfState = ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED;
                 } else {
                     mAfState = ANDROID_CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
@@ -2394,7 +2400,7 @@ status_t VirtualFakeCamera3::doFakeAF(CameraMetadata &settings) {
             // Simulate AF sweep completing instantaneously
 
             // Randomly transition to focused or not focused
-            if (rand() % 3) {
+            if (dist(mt) % 3) {
                 mAfState = ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED;
             } else {
                 mAfState = ANDROID_CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
@@ -2725,7 +2731,7 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
 
     // Construct result for all completed buffers and results
 
-    camera3_capture_result result;
+    camera3_capture_result result = {};
 
     if (mParent->hasCapability(BACKWARD_COMPATIBLE)) {
         static const uint8_t sceneFlicker = ANDROID_STATISTICS_SCENE_FLICKER_NONE;
@@ -2795,7 +2801,7 @@ void VirtualFakeCamera3::ReadoutThread::onJpegDone(const StreamBuffer &jpegBuffe
     mJpegHalBuffer.release_fence = -1;
     mJpegWaiting = false;
 
-    camera3_capture_result result;
+    camera3_capture_result result = {};
 
     result.frame_number = mJpegFrameNumber;
     result.result = NULL;

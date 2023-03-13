@@ -249,7 +249,7 @@ mfxStatus MfxDecoder::Init(uint32_t codec_type, uint32_t width, uint32_t height)
     mfxStatus mfx_sts = MFX_ERR_NONE;
     uint32_t impl_index = 0;
     mfxConfig cfg[2];
-    mfxVariant cfgVal[2];
+    mfxVariant cfgVal[2] = {};
 
     ClearFrameSurface();
 

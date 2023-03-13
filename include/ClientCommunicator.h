@@ -20,6 +20,8 @@
 #ifndef CLIENT_COMMUNICATOR_H
 #define CLIENT_COMMUNICATOR_H
 
+#define MAX_CAM 4
+
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -47,6 +49,9 @@ public:
                        std::shared_ptr<MfxDecoder> decoder,
                        int client_id);
     ~ClientCommunicator();
+
+    ClientCommunicator(ClientCommunicator const&) = delete;
+    ClientCommunicator& operator=(const ClientCommunicator&) = delete;
 
     int getClientId();
     status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet,

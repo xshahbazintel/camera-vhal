@@ -25,6 +25,7 @@ Compressor::Compressor() {}
 
 bool Compressor::compress(const unsigned char *data, int width, int height, int quality,
                           ExifData *exifData) {
+    memset(&mCompressInfo, 0, sizeof(mCompressInfo));
     if (!configureCompressor(width, height, quality)) {
         // The method will have logged a more detailed error message than we can
         // provide here so just return.
