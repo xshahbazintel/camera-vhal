@@ -85,6 +85,10 @@ bool ClientCommunicator::IsValidClientCapInfo() {
     return mValidClientCapInfo;
 }
 
+void ClientCommunicator::requestExit() {
+    mRunning = false;
+}
+
 status_t ClientCommunicator::sendCommandToClient(camera_packet_t *config_cmd_packet, size_t config_cmd_packet_size) {
     Mutex::Autolock al(mMutex);
     if (mClientFd < 0) {
@@ -285,7 +289,10 @@ bool ClientCommunicator::clientThread() {
     {
         Mutex::Autolock al(mMutex);
         mClientFd = mListener->getClientFd(mClientId);
-        ALOGI("%s(%d): Received fd %d", __FUNCTION__, mClientId, mClientFd);
+    }
+
+    if (mClientFd == -1) {
+        return false;
     }
 
     char *fbuffer;

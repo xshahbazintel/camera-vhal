@@ -28,6 +28,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <chrono>
 #include <cutils/properties.h>
 #include "CameraSocketCommand.h"
 
@@ -63,7 +64,7 @@ ConnectionsListener::ConnectionsListener(std::string suffix)
 }
 
 void ConnectionsListener::requestJoin () {
-    if(mSocketListenerThread->joinable())
+    if (mSocketListenerThread->joinable())
         mSocketListenerThread->join();
 }
 
@@ -72,6 +73,7 @@ int ConnectionsListener::getClientFd(int clientId) {
 }
 
 void ConnectionsListener::clearClientFd(int clientId) {
+    Mutex::Autolock al(mMutex);
     mClientFdPromises[clientId] = std::promise<int>();
     mClientsConnected[clientId] = false;
 }
@@ -79,6 +81,10 @@ void ConnectionsListener::clearClientFd(int clientId) {
 void ConnectionsListener::requestExit() {
     Mutex::Autolock al(mMutex);
     mRunning = false;
+    for (int clientId = 0; clientId < mClientFdPromises.size(); clientId++) {
+        if (mClientsConnected[clientId] == false)
+            mClientFdPromises[clientId].set_value(-1);
+    }
 }
 
 bool ConnectionsListener::socketListenerThreadProc() {
@@ -102,7 +108,6 @@ bool ConnectionsListener::socketListenerThreadProc() {
         if (ret < 0) {
             ALOGE(" %s Failed to unlink %s address %d, %s", __FUNCTION__,
                   mSocketPath.c_str(), ret, strerror(errno));
-            return false;
         }
     } else {
         ALOGI(" %s camera socket server file %s will created. ", __FUNCTION__,

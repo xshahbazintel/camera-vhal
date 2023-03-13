@@ -129,6 +129,8 @@ VirtualCameraFactory::~VirtualCameraFactory() {
         it->second = nullptr;
     }
     mVirtualCameras.clear();
+    for (int clientId = 0; clientId < mClientThreads.size(); clientId++)
+        mClientThreads[clientId]->requestExit();
 
     if (mSocketListener) {
         mSocketListener->requestExit();

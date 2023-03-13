@@ -52,6 +52,7 @@ public:
     status_t sendCommandToClient(socket::camera_packet_t *config_cmd_packet,
                                  size_t config_cmd_packet_size);
     bool IsValidClientCapInfo();
+    void requestExit();
     std::atomic<socket::CameraSessionState> mCameraSessionState;
     std::shared_ptr<ClientVideoBuffer> mCameraBuffer;
 
