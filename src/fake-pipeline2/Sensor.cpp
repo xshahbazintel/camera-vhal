@@ -136,7 +136,12 @@ Sensor::Sensor(uint32_t width, uint32_t height)
     mSrcFrameSize = mSrcWidth * mSrcHeight * BPP_NV12;
 }
 
-Sensor::~Sensor() { shutDown(); }
+Sensor::~Sensor() { 
+    try {
+        shutDown();
+    }catch(std::exception e) {
+    } 
+}
 
 status_t Sensor::startUp() {
     ALOGI(LOG_TAG "%s: E", __FUNCTION__);

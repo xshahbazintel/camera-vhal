@@ -64,7 +64,7 @@ public:
     ssize_t size_update = 0;
     static void* threadFunc(void * arg);
     
-    bool configureCapabilities();
+    bool configureCapabilities(bool skipCapRead);
 
 private:
     virtual status_t readyToRun();

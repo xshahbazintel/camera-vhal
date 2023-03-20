@@ -165,6 +165,7 @@ camera_vhal_module_relative_path := hw
 camera_vhal_cflags				 := -fno-short-enums -DREMOTE_HARDWARE
 camera_vhal_cflags				 += -Wno-unused-parameter -Wno-missing-field-initializers
 camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas
+camera_vhal_cflags				 += -fexceptions
 
 ifeq ($(BOARD_USES_GRALLOC1), true)
 camera_vhal_cflags += -DUSE_GRALLOC1
@@ -185,6 +186,7 @@ LOCAL_C_INCLUDES			+= ${camera_vhal_c_includes}
 LOCAL_SRC_FILES 			:= ${camera_vhal_src}
 LOCAL_SHARED_LIBRARIES 		:= ${camera_vhal_shared_libraries}
 LOCAL_STATIC_LIBRARIES 		:= ${camera_vhal_static_libraries}
+LOCAL_CPP_FEATURES              += exceptions
 
 include $(BUILD_SHARED_LIBRARY)
 

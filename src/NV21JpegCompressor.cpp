@@ -61,11 +61,14 @@ NV21JpegCompressor::NV21JpegCompressor() {
 }
 
 NV21JpegCompressor::~NV21JpegCompressor() {
+    try {
     CleanupFunc f = (CleanupFunc)getSymbol(mDl, "JpegStub_cleanup");
     if (f)
         (*f)(&mStub);
     else
         ALOGE("%s: Fatal error: getSymbol(JpegStub_cleanup) failed", __func__);
+    } catch(std::exception e) {
+    }
 }
 
 /****************************************************************************

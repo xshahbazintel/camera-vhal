@@ -176,7 +176,8 @@ public:
      */
     bool isConstructedOK() const { return mConstructedOK; }
 
-private:
+    bool constructVirtualCamera();
+
     /****************************************************************************
      * Private API
      ***************************************************************************/
@@ -184,13 +185,9 @@ private:
     /*
      * Creates a virtual remote camera and adds it to mVirtualCameras.
      */
-#ifdef ENABLE_FFMPEG
-    void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
-                                   std::shared_ptr<CGVideoDecoder> decoder, int cameraId);
-#else
 void createVirtualRemoteCamera(std::shared_ptr<CameraSocketServerThread> socket_server,
                                   int cameraId);
-#endif
+private:
     /*
      * Waits till remote-props has done setup, timeout after 500ms.
      */
@@ -232,20 +229,10 @@ public:
 
     pthread_cond_t mSignalCapRead = PTHREAD_COND_INITIALIZER;
     pthread_mutex_t mCapReadLock = PTHREAD_MUTEX_INITIALIZER;
-private:
-#ifdef ENABLE_FFMPEG
-    // NV12 Decoder
-    std::shared_ptr<CGVideoDecoder> mDecoder;
-#endif
-    // Socket server
+
     std::shared_ptr<CameraSocketServerThread> mSocketServer;
-#ifdef ENABLE_FFMPEG
-    // NV12 Decoder
-    std::shared_ptr<CGVideoDecoder> mDecoder;
-    bool createSocketServer(std::shared_ptr<CGVideoDecoder> decoder);
-#else
+private:
     bool createSocketServer();
-#endif
 };
 
 };  // end of namespace android

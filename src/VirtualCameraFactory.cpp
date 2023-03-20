@@ -91,86 +91,65 @@ VirtualCameraFactory::VirtualCameraFactory()
     pthread_mutex_lock(&mCapReadLock);
     pthread_cond_wait(&mSignalCapRead, &mCapReadLock);
 
-    ALOGV("%s: Received capability info from remote client device", __FUNCTION__);
+    pthread_mutex_unlock(&mCapReadLock);
+
+    mConstructedOK = true;
+}
+
+bool VirtualCameraFactory::constructVirtualCamera() {
+    ALOGV("%s: Enter", __FUNCTION__);
 
     // Update number of cameras requested from remote client HW.
     mNumOfCamerasSupported = gMaxNumOfCamerasSupported;
 
     // Allocate space for each cameras requested.
+    if(mVirtualCameras != NULL) {
+        delete mVirtualCameras;
+        mVirtualCameras = NULL;
+    }
     mVirtualCameras = new VirtualBaseCamera *[mNumOfCamerasSupported];
     if (mVirtualCameras == nullptr) {
         ALOGE("%s: Unable to allocate virtual camera array", __FUNCTION__);
-        return;
+        return false;
     } else {
         for (int n = 0; n < mNumOfCamerasSupported; n++) {
             mVirtualCameras[n] = nullptr;
         }
     }
 
-    // Create cameras based on the client request.
-    for (int cameraId = 0; cameraId < mNumOfCamerasSupported; cameraId++) {
-        // Wait until start updating metadata for each camera.
-        while (!gStartMetadataUpdate) {
-            ALOGV("%s: wait until start updating metadata for a single camera", __func__);
-            // 200us sleep for this thread.
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
-        }
-
-#ifdef ENABLE_FFMPEG
-        createVirtualRemoteCamera(mSocketServer, mDecoder, cameraId);
-#else
-        createVirtualRemoteCamera(mSocketServer, cameraId);
-#endif
-        // Created a camera successfully hence update the status.
-        gDoneMetadataUpdate = true;
-        gStartMetadataUpdate = false;
-    }
-
     ALOGI("%s: Total number of cameras supported: %d", __FUNCTION__, mNumOfCamerasSupported);
-
-    mConstructedOK = true;
+    return true;
 }
-#ifdef ENABLE_FFMPEG
-bool VirtualCameraFactory::createSocketServer(std::shared_ptr<CGVideoDecoder> decoder) {
-#else
 bool VirtualCameraFactory::createSocketServer() {
-#endif
     ALOGV("%s: E", __FUNCTION__);
 
     mCameraSessionState = socket::CameraSessionState::kNone;
     char id[PROPERTY_VALUE_MAX] = {0};
-#ifdef ENABLE_FFMPEG
-    if (property_get("ro.boot.container.id", id, "") > 0) {
-        mSocketServer =
-            std::make_shared<CameraSocketServerThread>(id, decoder, std::ref(mCameraSessionState));
 
-        mSocketServer->run("FrontBackCameraSocketServerThread");
-    } else
-        ALOGE("%s: FATAL: container id is not set!!", __func__);
-mSocketServer->run("FrontBackCameraSocketServerThread");
-    ALOGV("%s: X", __FUNCTION__);
-#else
     mSocketServer =
         std::make_shared<CameraSocketServerThread>(id, std::ref(mCameraSessionState));
-#endif
     
     // TODO need to return false if error.
     return true;
 }
 
 VirtualCameraFactory::~VirtualCameraFactory() {
+    try {
     if (mVirtualCameras != nullptr) {
         for (int n = 0; n < mNumOfCamerasSupported; n++) {
             if (mVirtualCameras[n] != nullptr) {
                 delete mVirtualCameras[n];
+                mVirtualCameras[n] = nullptr;
             }
         }
-        delete[] mVirtualCameras;
+        //delete mVirtualCameras;
     }
 
     if (mSocketServer) {
         mSocketServer->requestExit();
         mSocketServer->join();
+    }
+    } catch(std::exception e) {
     }
 }
 
