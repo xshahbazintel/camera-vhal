@@ -21,7 +21,9 @@
 #include <log/log.h>
 #include <libexif/exif-data.h>
 
-Compressor::Compressor() {}
+Compressor::Compressor() {
+    mCompressInfo.script_space_size=0;  //Coverity Fix: Dummily assigned to 0
+}
 
 bool Compressor::compress(const unsigned char *data, int width, int height, int quality,
                           ExifData *exifData) {
@@ -51,7 +53,6 @@ bool Compressor::configureCompressor(int width, int height, int quality) {
     jpeg_create_compress(&mCompressInfo);
 
     mCompressInfo.image_width = width;
-    mCompressInfo.script_space_size=0;  //Coverity Fix: Dummily assigned to 0
     mCompressInfo.image_height = height;
     mCompressInfo.input_components = 3;
     mCompressInfo.in_color_space = JCS_YCbCr;
