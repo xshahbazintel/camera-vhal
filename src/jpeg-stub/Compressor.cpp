@@ -22,7 +22,7 @@
 #include <libexif/exif-data.h>
 
 Compressor::Compressor() {
-    mCompressInfo.script_space_size=0;  //Coverity Fix: Dummily assigned to 0
+    memset(&mCompressInfo, 0, sizeof(mCompressInfo));
 }
 
 bool Compressor::compress(const unsigned char *data, int width, int height, int quality,
