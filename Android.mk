@@ -64,7 +64,9 @@ camera_vhal_shared_libraries := \
     libsync \
     libvpl \
     libva \
-    libva-android
+    libva-android \
+    android.hardware.graphics.mapper@4.0 \
+    libhidlbase
 
 camera_vhal_static_libraries := \
 	android.hardware.camera.common@1.0-helper \
@@ -75,10 +77,6 @@ camera_vhal_module_relative_path := hw
 camera_vhal_cflags				 := -fno-short-enums -DREMOTE_HARDWARE
 camera_vhal_cflags				 += -Wno-unused-parameter -Wno-missing-field-initializers
 camera_vhal_clang_flags			 := -Wno-c++11-narrowing -Werror -Wno-unknown-pragmas -Wno-implicit-fallthrough -Wno-deprecated
-
-ifeq ($(BOARD_USES_GRALLOC1), true)
-camera_vhal_cflags += -DUSE_GRALLOC1
-endif
 
 LOCAL_MODULE_RELATIVE_PATH	:= ${camera_vhal_module_relative_path}
 LOCAL_CFLAGS				:= ${camera_vhal_cflags}

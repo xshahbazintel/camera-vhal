@@ -495,15 +495,9 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
         newStream->max_buffers = kMaxBufferCount;
         switch (newStream->stream_type) {
             case CAMERA3_STREAM_OUTPUT:
-#ifndef USE_GRALLOC1
                 // Workarroud: SG1:  HAL_PIXEL_FORMAT_RGBA_8888 &&
                 // GRALLOC_USAGE_HW_CAMERA_WRITE combination doesn't supported by minigbm
-                newStream->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
-                ALOGE("%s: GRALLOC0", __FUNCTION__);
-#else
                 newStream->usage |= GRALLOC_USAGE_SW_WRITE_OFTEN;
-                ALOGE("%s: GRALLOC1 GRALLOC_USAGE_SW_WRITE_OFTEN", __FUNCTION__);
-#endif
                 break;
             case CAMERA3_STREAM_INPUT:
                 newStream->usage |= GRALLOC_USAGE_HW_CAMERA_READ;
@@ -514,20 +508,14 @@ status_t VirtualFakeCamera3::configureStreams(camera3_stream_configuration *stre
         }
         // Set the buffer format, inline with gralloc implementation
         if (newStream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
-#ifndef USE_GRALLOC1
-            if (newStream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
-#endif
-                if ((newStream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+            if ((newStream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
                     (newStream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
-                    // Both preview and video capture output format would
-                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
-                    newStream->format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else {
-                    newStream->format = HAL_PIXEL_FORMAT_RGB_888;
-                }
-#ifndef USE_GRALLOC1
+                // Both preview and video capture output format would
+                // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
+                newStream->format = HAL_PIXEL_FORMAT_RGBA_8888;
+            } else {
+                newStream->format = HAL_PIXEL_FORMAT_RGB_888;
             }
-#endif
         }
     }
 
@@ -1036,6 +1024,8 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
     for (size_t i = 0; i < request->num_output_buffers; i++) {
         const camera3_stream_buffer &srcBuf = request->output_buffers[i];
         StreamBuffer destBuf;
+        bool bImported = false;
+        bool bLocked = false;
 
         destBuf.streamId = kGenericStreamId;
         destBuf.width = srcBuf.stream->width;
@@ -1050,22 +1040,16 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
                              : srcBuf.stream->format;
 
         if (srcBuf.stream->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
-#ifndef USE_GRALLOC1
-            if (srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_WRITE) {
-#endif
-                if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
-                    (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
-                    // Both preview and video capture output format would
-                    // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
-                    destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
-                } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
-                           GRALLOC_USAGE_HW_CAMERA_ZSL) {
-                    // Note: Currently no support for ZSL mode
-                    destBuf.format = HAL_PIXEL_FORMAT_RGB_888;
-                }
-#ifndef USE_GRALLOC1
+            if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_TEXTURE) ||
+                (srcBuf.stream->usage & GRALLOC_USAGE_HW_VIDEO_ENCODER)) {
+                // Both preview and video capture output format would
+                // be RGB32 always if it is HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED.
+                destBuf.format = HAL_PIXEL_FORMAT_RGBA_8888;
+            } else if ((srcBuf.stream->usage & GRALLOC_USAGE_HW_CAMERA_MASK) ==
+                       GRALLOC_USAGE_HW_CAMERA_ZSL) {
+                // Note: Currently no support for ZSL mode
+                destBuf.format = HAL_PIXEL_FORMAT_RGB_888;
             }
-#endif
         }
 
         if (destBuf.format == HAL_PIXEL_FORMAT_BLOB) {
@@ -1081,41 +1065,29 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         }
         if (res == OK) {
             // Lock buffer for writing
-            if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
-                srcBuf.stream->format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
-                if (destBuf.format == HAL_PIXEL_FORMAT_YCbCr_420_888 ||
-                    destBuf.format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
-                    android_ycbcr ycbcr = android_ycbcr();
-                    res = GrallocModule::getInstance().lock_ycbcr(*(destBuf.buffer),
-#ifdef USE_GRALLOC1
-                                                                  GRALLOC1_PRODUCER_USAGE_CPU_WRITE,
-#else
-                                                                  GRALLOC_USAGE_HW_CAMERA_WRITE,
-#endif
-                                                                  0, 0, destBuf.width,
-                                                                  destBuf.height, &ycbcr);
-                    destBuf.img = static_cast<uint8_t *>(ycbcr.y);
+            res = GrallocModule::getInstance().import(*(destBuf.buffer), &destBuf.importedHandle);
+            if (res == OK) {
+                bImported = true;
+                /**
+                 * For HAL_PIXEL_FORMAT_BLOB format, framework allocates the gralloc buffer
+                 * with height 1. If lock is done with destination buffer height instead of
+                 * height=1 for BLOB format, lock will fail with "Invalid region: height
+                 * greater than buffer height". Inorder to avoid the lock failure, call lock with
+                 * height=1 for BLOB format.
+                 */
+                res = GrallocModule::getInstance().lock(destBuf.importedHandle,
+                                     GRALLOC_USAGE_SW_WRITE_OFTEN, 0, 0, destBuf.width,
+                                     (destBuf.format == HAL_PIXEL_FORMAT_BLOB) ? 1 : destBuf.height,
+                                     (void **)&(destBuf.img));
+                if (res != OK) {
+                    ALOGE("%s: Request %d: Buffer %zu: Unable to lock buffer format: 0x%x",
+                          __FUNCTION__, frameNumber, i, destBuf.format);
                 } else {
-                    ALOGE("Unexpected private format for flexible YUV: 0x%x", destBuf.format);
-                    res = INVALID_OPERATION;
+                    ALOGVV(" %s, stream format 0x%x width %d height %d buffer 0x%p img 0x%p",
+                           __FUNCTION__, destBuf.format, destBuf.width, destBuf.height, destBuf.buffer,
+                           destBuf.img);
+                    bLocked = true;
                 }
-            } else {
-                res = GrallocModule::getInstance().lock(*(destBuf.buffer),
-#ifdef USE_GRALLOC1
-                                                        GRALLOC1_PRODUCER_USAGE_CPU_WRITE,
-#else
-                                                        GRALLOC_USAGE_HW_CAMERA_WRITE,
-#endif
-                                                        0, 0, destBuf.width, destBuf.height,
-                                                        (void **)&(destBuf.img));
-            }
-            if (res != OK) {
-                ALOGE("%s: Request %d: Buffer %zu: Unable to lock buffer", __FUNCTION__,
-                      frameNumber, i);
-            } else {
-                ALOGVV(" %s, stream format 0x%x width %d height %d buffer 0x%p img 0x%p",
-                       __FUNCTION__, destBuf.format, destBuf.width, destBuf.height, destBuf.buffer,
-                       destBuf.img);
             }
         }
 
@@ -1123,7 +1095,10 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
             // Either waiting or locking failed. Unlock locked buffers and bail
             // out.
             for (size_t j = 0; j < i; j++) {
-                GrallocModule::getInstance().unlock(*(request->output_buffers[i].buffer));
+                if (bLocked)
+                    GrallocModule::getInstance().unlock(destBuf.importedHandle);
+                if (bImported)
+                    GrallocModule::getInstance().release(destBuf.importedHandle);
             }
             delete sensorBuffers;
             delete buffers;
@@ -2720,7 +2695,6 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
                   res);
             // fallthrough for cleanup
         }
-        GrallocModule::getInstance().unlock(*(buf->buffer));
 
         buf->status = goodBuffer ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
         buf->acquire_fence = -1;
@@ -2773,6 +2747,14 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
     }
     if (signalIdle) mParent->signalReadoutIdle();
 
+    if (mCurrentRequest.sensorBuffers != NULL) {
+        for (int i = 0; i < mCurrentRequest.sensorBuffers->size(); i++) {
+            const StreamBuffer &b = (*mCurrentRequest.sensorBuffers)[i];
+            GrallocModule::getInstance().unlock(b.importedHandle);
+            GrallocModule::getInstance().release(b.importedHandle);
+        }
+    }
+
     // Send it off to the framework
     ALOGVV("%s: ReadoutThread: Send result to framework", __FUNCTION__);
     mParent->sendCaptureResult(&result);
@@ -2793,8 +2775,6 @@ bool VirtualFakeCamera3::ReadoutThread::threadLoop() {
 
 void VirtualFakeCamera3::ReadoutThread::onJpegDone(const StreamBuffer &jpegBuffer, bool success) {
     Mutex::Autolock jl(mJpegLock);
-
-    GrallocModule::getInstance().unlock(*(jpegBuffer.buffer));
 
     mJpegHalBuffer.status = success ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
     mJpegHalBuffer.acquire_fence = -1;
@@ -2819,6 +2799,8 @@ void VirtualFakeCamera3::ReadoutThread::onJpegDone(const StreamBuffer &jpegBuffe
         ALOGV("%s: Compression complete, returning buffer to framework", __FUNCTION__);
     }
 
+    GrallocModule::getInstance().unlock(jpegBuffer.importedHandle);
+    GrallocModule::getInstance().release(jpegBuffer.importedHandle);
     mParent->sendCaptureResult(&result);
 }
 
