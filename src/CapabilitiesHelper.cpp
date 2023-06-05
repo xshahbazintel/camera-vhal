@@ -27,7 +27,8 @@ using namespace socket;
 
 bool CapabilitiesHelper::IsCodecTypeValid(uint32_t CodecType) {
     if ((CodecType == uint32_t(VideoCodecType::kH264))
-          || (CodecType == uint32_t(VideoCodecType::kH265))) {
+          || (CodecType == uint32_t(VideoCodecType::kH265))
+          || (CodecType == uint32_t(VideoCodecType::kAV1))) {
         return true;
     } else
         return false;
