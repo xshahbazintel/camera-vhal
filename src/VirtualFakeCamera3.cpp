@@ -1025,7 +1025,6 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
         const camera3_stream_buffer &srcBuf = request->output_buffers[i];
         StreamBuffer destBuf;
         bool bImported = false;
-        bool bLocked = false;
 
         destBuf.streamId = kGenericStreamId;
         destBuf.width = srcBuf.stream->width;
@@ -1086,20 +1085,23 @@ status_t VirtualFakeCamera3::processCaptureRequest(camera3_capture_request *requ
                     ALOGVV(" %s, stream format 0x%x width %d height %d buffer 0x%p img 0x%p",
                            __FUNCTION__, destBuf.format, destBuf.width, destBuf.height, destBuf.buffer,
                            destBuf.img);
-                    bLocked = true;
                 }
             }
         }
 
         if (res != OK) {
-            // Either waiting or locking failed. Unlock locked buffers and bail
-            // out.
-            for (size_t j = 0; j < i; j++) {
-                if (bLocked)
-                    GrallocModule::getInstance().unlock(destBuf.importedHandle);
-                if (bImported)
-                    GrallocModule::getInstance().release(destBuf.importedHandle);
+            ALOGE("%s: Request %d: Buffer %zu: Gralloc failure with buffer format: 0x%x",
+                  __FUNCTION__, frameNumber, i, destBuf.format);
+            // Either waiting or locking failed. Unlock locked buffers from
+            // previous iterations of i
+            for (const auto& buf : *sensorBuffers) {
+                GrallocModule::getInstance().unlock(buf.importedHandle);
+                GrallocModule::getInstance().release(buf.importedHandle);
             }
+            // Release if import successful in this iteration of i.
+            // Unlock not required, as lock not successful/called in this iteration.
+            if (bImported)
+                GrallocModule::getInstance().release(destBuf.importedHandle);
             delete sensorBuffers;
             delete buffers;
             return NO_INIT;
