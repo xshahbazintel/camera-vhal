@@ -47,7 +47,7 @@ public:
 
     virtual void TearDown();
 
-    std::thread* t1;
+    std::thread* t1 = nullptr;
     CameraClient mCameraClient;
     CapabilitiesHelper mCapabilitiesHelper;
 
