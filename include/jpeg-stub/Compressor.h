@@ -63,7 +63,7 @@ private:
         jmp_buf mJumpBuffer;
     };
 
-    jpeg_compress_struct mCompressInfo;
+    jpeg_compress_struct mCompressInfo = {};
     DestinationManager mDestManager;
     ErrorManager mErrorManager;
 

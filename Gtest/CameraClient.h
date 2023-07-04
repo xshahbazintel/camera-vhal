@@ -33,7 +33,7 @@ using namespace std;
 
 class CameraClient {
 private:
-    bool is_running;
+    bool is_running = false;
 public :
     int startDummyStreamer();
     void stopDummyStreamer();
