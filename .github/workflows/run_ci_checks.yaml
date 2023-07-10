@@ -8,16 +8,12 @@ on:
   pull_request_review:
     types: "**"
     branches: "**"
-# env:
-#   event: 
+env:
+  event_github: ${{ toJSON(github) }}
+
+  
 jobs:
-  steps:
-    - name: Dump GitHub context
-      id: github_context_step
-      run: echo $JSON
-      env:
-        JSON: ${{ toJSON(github) }}
-  # TriggerWorkfows:
-  #   uses: projectceladon/celadonworkflows/.github/workflows/trigger_ci.yml@v1.0
-  #   with:
-  #     EVENT: '${{ toJSON(github) }}'
+  TriggerWorkfows:
+    uses: projectceladon/celadonworkflows/.github/workflows/trigger_ci.yml@v1.0
+    with:
+      EVENT: ${{ env.event_github }} 
