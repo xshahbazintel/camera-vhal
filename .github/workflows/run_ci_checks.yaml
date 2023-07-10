@@ -10,6 +10,6 @@ on:
     branches: "**"
 jobs:
   TriggerWorkfows:
-    uses: projectceladon/celadonworkflows/.github/workflows/trigger_ci.yml@v1.0
+    uses: projectceladon/celadonworkflows/.github/workflows/trigger_ci.yml@/test-v1.0
     with:
       EVENT: ${{ toJSON(github.event) }}
